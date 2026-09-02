@@ -1,0 +1,6 @@
+# Python 3.8 compatible (also runs on newer 3.x for local testing)
+# Versions verified against PyPI requires-python metadata.
+Flask==2.3.3
+waitress==3.0.0
+requests==2.31.0
+python-dotenv==1.0.1

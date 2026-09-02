@@ -1,0 +1,17 @@
+# 密钥与本地环境
+backend/.env
+*.env
+!backend/.env.example
+
+# 依赖与构建
+frontend/node_modules/
+backend/.venv/
+__pycache__/
+*.pyc
+
+# 日志
+logs/*.log
+
+# 本地构建产物（希沃运行时需要 dist，但可由 frontend/dist 重新构建）
+frontend/dist/
+dist/
