@@ -175,10 +175,18 @@ def static_files(path):
     if path.startswith("api/"):
         abort(404)
     if path and os.path.isfile(os.path.join(DIST_DIR, path)):
-        return send_from_directory(DIST_DIR, path)
+        resp = send_from_directory(DIST_DIR, path)
+        # 带 hash 的 assets 可长缓存；其余页面入口不缓存，确保发布后立即生效
+        if not path.startswith("assets/"):
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+        return resp
     index = os.path.join(DIST_DIR, "index.html")
     if os.path.isfile(index):
-        return send_from_directory(DIST_DIR, "index.html")
+        resp = send_from_directory(DIST_DIR, "index.html")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
     return (
         jsonify(
             {
