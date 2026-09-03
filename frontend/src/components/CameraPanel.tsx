@@ -19,9 +19,9 @@ export default function CameraPanel() {
   }, [tick])
 
   return (
-    <div className="anim-enter-slow" style={{ animationDelay: '60ms' }}>
-      <div className="panel-title mb-2 flex items-center gap-2">
-        <Video size={16} className="text-accent" />
+    <div className="anim-enter-slow w-full max-w-sm" style={{ animationDelay: '60ms' }}>
+      <div className="panel-title mb-1.5 flex items-center gap-2">
+        <Video size={15} className="text-accent" />
         相机画面
         <span className="ml-auto flex items-center gap-1.5 text-[11px]">
           <span
@@ -33,11 +33,11 @@ export default function CameraPanel() {
         </span>
       </div>
       <div className="panel overflow-hidden p-0">
-        <div className="relative aspect-[5/4] bg-black/5">
+        <div className="relative aspect-video bg-black/5">
           <img
             src={`/api/camera/frame?t=${tick}`}
             alt="相机画面"
-            className="h-full w-full object-contain"
+            className="h-full w-full object-cover"
             onError={(e) => {
               ;(e.target as HTMLImageElement).style.opacity = '0.15'
             }}

@@ -78,9 +78,8 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-stretch">
-        <div className="md:col-span-2 flex flex-col gap-4">
+        <div className="md:col-span-2">
           <Leaderboard />
-          <CameraPanel />
         </div>
         <div className="md:col-span-3 flex flex-col">
           <DutyRoster />
@@ -90,6 +89,11 @@ export default function Dashboard() {
       <div className="anim-enter-slow" style={{ animationDelay: '140ms' }}>
         <div className="panel-title mb-2">组别 × 兵种矩阵</div>
         <MatrixTable matrix={dashboard?.matrix ?? []} />
+      </div>
+
+      {/* 相机画面：页面最底部小窗，不影响原布局 */}
+      <div className="mt-1">
+        <CameraPanel />
       </div>
 
       <TaskDrawer task={selected} onClose={() => setSelected(null)} />
