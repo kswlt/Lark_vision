@@ -192,6 +192,19 @@ def main():
             if img is None:
                 time.sleep(DETECT_INTERVAL)
                 continue
+            # 保存实时画面帧（供前端相机小窗口轮询）
+            try:
+                hh, ww = img.shape[:2]
+                scale = 640.0 / max(ww, 1)
+                if scale < 1.0:
+                    small = cv2.resize(img, (int(ww * scale), int(hh * scale)))
+                else:
+                    small = img
+                cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile(
+                    os.path.join(LIB, "frame_live.jpg")
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("save frame failed: %s", e)
             results = detect_and_recognize(img, detector, rec, names)
             now = time.time()
             for name, conf, box in results:
