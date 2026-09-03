@@ -54,6 +54,44 @@ class DataStore(object):
         self._unchecked = None
         self._unchecked_at = 0.0
         self._lock = threading.Lock()
+        self._refresh_lock = threading.Lock()  # 单飞：同一时刻只允许一个线程刷新飞书
+
+    def _cached_or_refresh(self, state_name, ttl, loader):
+        """
+        带"单飞 + 旧缓存兜底"的数据源读取：
+        - 缓存新鲜 -> 直接返回
+        - 缓存过期 -> 只有一个线程真正拉飞书，其余请求立即返回旧缓存（不阻塞、不重复打飞书）
+        - 无旧缓存   -> 等待刷新线程完成后返回
+        """
+        now = time.time()
+        with self._lock:
+            cur = getattr(self, state_name)
+            if cur is not None and now - getattr(self, state_name + "_at") < ttl:
+                return cur
+        if self._refresh_lock.acquire(blocking=False):
+            try:
+                with self._lock:
+                    cur = getattr(self, state_name)
+                    if cur is not None and time.time() - getattr(self, state_name + "_at") < ttl:
+                        return cur
+                val = loader()
+                with self._lock:
+                    setattr(self, state_name, val)
+                    setattr(self, state_name + "_at", time.time())
+                return val
+            finally:
+                self._refresh_lock.release()
+        # 其它线程正在刷新：返回旧缓存，避免排队挤爆 Waitress
+        with self._lock:
+            cur = getattr(self, state_name)
+            if cur is not None:
+                return cur
+        # 无旧缓存：短暂等待刷新结果
+        import time as _t
+
+        _t.sleep(0.5)
+        with self._lock:
+            return getattr(self, state_name)
 
     @property
     def data_source(self):
@@ -61,15 +99,7 @@ class DataStore(object):
 
     # ---------------- tasks ----------------
     def get_tasks(self):
-        now = time.time()
-        with self._lock:
-            if self._tasks is not None and now - self._tasks_at < TASKS_TTL:
-                return self._tasks
-        tasks = self._load_tasks()
-        with self._lock:
-            self._tasks = tasks
-            self._tasks_at = time.time()
-        return tasks
+        return self._cached_or_refresh("_tasks", TASKS_TTL, self._load_tasks)
 
     def _load_tasks(self):
         if not self.feishu_configured:
@@ -110,17 +140,12 @@ class DataStore(object):
 
     # ---------------- worktime ----------------
     def get_worktime_records(self):
-        now = time.time()
-        with self._lock:
-            if self._worktime is not None and now - self._worktime_at < WORKTIME_TTL:
-                return self._worktime
-        records = self._load_worktime()
-        # 统一清洗：任何来源（含 mock）的异常记录都不进榜
-        records = [r for r in (clean_record(r) for r in records) if r]
-        with self._lock:
-            self._worktime = records
-            self._worktime_at = time.time()
-        return records
+        def loader():
+            records = self._load_worktime()
+            # 统一清洗：任何来源（含 mock）的异常记录都不进榜
+            return [r for r in (clean_record(r) for r in records) if r]
+
+        return self._cached_or_refresh("_worktime", WORKTIME_TTL, loader)
 
     def _load_worktime(self):
         source = os.environ.get("FEISHU_WORKTIME_SOURCE", "mock").strip().lower()
@@ -190,24 +215,20 @@ class DataStore(object):
 
     # ---------------- 今日未打卡 ----------------
     def get_unchecked(self):
-        now = time.time()
-        with self._lock:
-            if self._unchecked is not None and now - self._unchecked_at < UNCHECKED_TTL:
-                return self._unchecked
-        names = []
-        if self.feishu_configured and self.client:
+        def loader():
+            names = []
+            if self.feishu_configured and self.client:
+                try:
+                    names = load_unchecked_today(self.client)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("未打卡名单获取失败: %s", e)
+            # 已通过摄像头人脸识别打卡的成员，从未打卡名单中扣减
             try:
-                names = load_unchecked_today(self.client)
+                checked = checked_name_set()
+                if checked:
+                    names = [n for n in names if n not in checked]
             except Exception as e:  # noqa: BLE001
-                logger.warning("未打卡名单获取失败: %s", e)
-        # 已通过摄像头人脸识别打卡的成员，从未打卡名单中扣减
-        try:
-            checked = checked_name_set()
-            if checked:
-                names = [n for n in names if n not in checked]
-        except Exception as e:  # noqa: BLE001
-            logger.warning("人脸打卡扣减失败: %s", e)
-        with self._lock:
-            self._unchecked = names
-            self._unchecked_at = time.time()
-        return names
+                logger.warning("人脸打卡扣减失败: %s", e)
+            return names
+
+        return self._cached_or_refresh("_unchecked", UNCHECKED_TTL, loader)

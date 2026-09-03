@@ -230,7 +230,7 @@ def main():
         DIST_DIR,
     )
     app.logger.info("Waitress 监听 %s:%s", host, port)
-    serve(app, host=host, port=port, threads=8)
+    serve(app, host=host, port=port, threads=12)
 
 
 if __name__ == "__main__":
