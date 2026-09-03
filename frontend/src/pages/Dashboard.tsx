@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useData } from '../store'
 import CountdownRow from '../components/CountdownRow'
-import KpiBar from '../components/KpiBar'
+import DutyRoster from '../components/DutyRoster'
 import MatrixTable from '../components/MatrixTable'
 import Leaderboard from '../components/Leaderboard'
 import SuperUrgent from '../components/SuperUrgent'
 import TaskDrawer from '../components/TaskDrawer'
 import TaskFeed from '../components/TaskFeed'
+import UncheckedTicker from '../components/UncheckedTicker'
 import { RobotBadge } from '../components/Badge'
 import { fmtDate } from '../lib/format'
 import { daysUntil } from '../lib/format'
@@ -37,18 +38,12 @@ export default function Dashboard() {
         <div className="text-[11px] text-base-400 num-mono pulse-soft">加载中…</div>
       )}
 
+      {/* 今日未打卡名单：倒计时上方，黑色醒目滚动 */}
+      <UncheckedTicker />
+
       <CountdownRow milestones={milestones} />
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-stretch">
-        <div className="md:col-span-2">
-          <Leaderboard />
-        </div>
-        <div className="md:col-span-3 flex flex-col">
-          <KpiBar counts={dashboard?.counts ?? null} />
-        </div>
-      </div>
-
-      {/* 任务动态：合并为一条横贯全宽的长条，40 条横向滚动 */}
+      {/* 任务动态：页面主角，横贯全宽，40 条横向滚动 */}
       <TaskFeed onOpen={setSelected} feed={tasks.slice(0, 40)} />
 
       {/* 超级紧急（左） + 未来 7 天（右） */}
@@ -78,6 +73,15 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-stretch">
+        <div className="md:col-span-2">
+          <Leaderboard />
+        </div>
+        <div className="md:col-span-3 flex flex-col">
+          <DutyRoster />
         </div>
       </div>
 

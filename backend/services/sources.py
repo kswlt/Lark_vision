@@ -21,7 +21,8 @@ from services.feishu.worktime import (
     load_from_bitable,
     load_unchecked_today,
 )
-from config.duty import DUTY_ROSTER, DUTY_START
+from services.face_checkin import checked_name_set
+from config.duty import get_duty_roster, get_duty_start
 
 logger = logging.getLogger("sources")
 
@@ -165,11 +166,14 @@ class DataStore(object):
 
     # ---------------- 值日表 ----------------
     def get_duty(self):
-        """按 DUTY_ROSTER 轮值生成今日 + 未来 6 天（共 7 天）值日安排。"""
+        """按名单轮值生成今日 + 未来 6 天（共 7 天）值日安排（名单热读，编辑即时生效）。"""
         from datetime import date, timedelta
 
-        roster = DUTY_ROSTER or ["待定"]
-        start = date.fromisoformat(DUTY_START)
+        roster = get_duty_roster()
+        try:
+            start = date.fromisoformat(get_duty_start())
+        except ValueError:
+            start = date(2026, 9, 1)
         today = date.today()
         days = []
         for i in range(7):
@@ -196,6 +200,13 @@ class DataStore(object):
                 names = load_unchecked_today(self.client)
             except Exception as e:  # noqa: BLE001
                 logger.warning("未打卡名单获取失败: %s", e)
+        # 已通过摄像头人脸识别打卡的成员，从未打卡名单中扣减
+        try:
+            checked = checked_name_set()
+            if checked:
+                names = [n for n in names if n not in checked]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("人脸打卡扣减失败: %s", e)
         with self._lock:
             self._unchecked = names
             self._unchecked_at = time.time()

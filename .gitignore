@@ -18,3 +18,8 @@ dist/
 
 # 大体积日志（不入库）
 logs/capture.txt
+
+# 人脸识别数据（照片/模型/打卡记录，隐私不入库）
+face_library/
+data/
+backend/data/

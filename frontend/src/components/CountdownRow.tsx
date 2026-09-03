@@ -44,14 +44,14 @@ function MilestoneCard({ m, i }: { m: Milestone; i: number }) {
 
   return (
     <div
-      className={`panel hud-frame p-4 flex flex-col gap-1.5 pulse-slow anim-enter ${
+      className={`panel hud-frame p-4 flex flex-col items-center gap-1.5 pulse-slow anim-enter ${
         overdue ? 'border-red-500/50' : ''
       }`}
       style={{ animationDelay: `${i * 90}ms` }}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
         <span className="panel-title">{m.name}</span>
-        <Flag size={13} className={overdue ? 'text-red-400' : 'text-accent-bright'} />
+        <Flag size={14} className={overdue ? 'text-red-400' : 'text-accent-bright'} />
       </div>
 
       {overdue ? (
@@ -61,13 +61,13 @@ function MilestoneCard({ m, i }: { m: Milestone; i: number }) {
       ) : (
         <>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-5xl font-bold text-accent-bright num-mono leading-none glow-num">
+            <span className="text-6xl font-bold text-accent-bright num-mono leading-none glow-num">
               {days}
             </span>
-            <span className="text-[11px] tracking-[0.2em] text-base-300">天</span>
+            <span className="text-[12px] tracking-[0.2em] text-base-300">天</span>
           </div>
-          <div className="num-mono text-[13px] text-accent-bright tracking-[0.2em] flex items-center gap-1">
-            <span className="text-[9px] text-base-400">剩余</span>
+          <div className="num-mono text-xl font-bold text-accent-bright tracking-[0.18em] flex items-center gap-1.5 pulse-soft">
+            <span className="text-[11px] text-base-400">剩余</span>
             {dh}:{dm}:
             <span key={ds} className="tick-pop">
               {ds}
@@ -76,7 +76,7 @@ function MilestoneCard({ m, i }: { m: Milestone; i: number }) {
         </>
       )}
 
-      <div className="num-mono text-[11px] text-base-300">
+      <div className="num-mono text-[13px] text-base-300">
         {fmtDate(m.date)} · {m.note || '截止'}
       </div>
     </div>

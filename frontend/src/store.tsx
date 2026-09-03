@@ -30,6 +30,7 @@ interface DataState {
   health: Health | null
   duty: DutyDay[]
   unchecked: string[]
+  faceCheckin: string[]
   loading: boolean
   error: string | null
   refresh: () => void
@@ -48,6 +49,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [duty, setDuty] = useState<DutyDay[]>([])
   const [unchecked, setUnchecked] = useState<string[]>([])
+  const [faceCheckin, setFaceCheckin] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
@@ -72,12 +74,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       api.worktime('week'),
       api.worktime('month'),
       api.unchecked(),
+      api.faceCheckin(),
       api.duty(),
       api.people(),
       api.health()
     ]).then((results) => {
       if (!alive) return
-      const [t, d, g, r, ww, wm, u, dy, p, h] = results
+      const [t, d, g, r, ww, wm, u, fc, dy, p, h] = results
       if (t.status === 'fulfilled') setTasks(t.value)
       if (d.status === 'fulfilled') setDashboard(d.value)
       if (g.status === 'fulfilled') setGroups(g.value)
@@ -85,6 +88,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (ww.status === 'fulfilled') setWorktimeWeek(ww.value)
       if (wm.status === 'fulfilled') setWorktimeMonth(wm.value)
       if (u.status === 'fulfilled') setUnchecked(u.value.names ?? [])
+      if (fc.status === 'fulfilled') setFaceCheckin(fc.value.names ?? [])
       if (dy.status === 'fulfilled') setDuty(dy.value)
       if (p.status === 'fulfilled') setPeople(p.value)
       if (h.status === 'fulfilled') setHealth(h.value)
@@ -109,11 +113,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       health,
       duty,
       unchecked,
+      faceCheckin,
       loading,
       error,
       refresh
     }),
-    [tasks, dashboard, groups, robots, worktimeWeek, worktimeMonth, people, health, duty, unchecked, loading, error, refresh]
+    [tasks, dashboard, groups, robots, worktimeWeek, worktimeMonth, people, health, duty, unchecked, faceCheckin, loading, error, refresh]
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

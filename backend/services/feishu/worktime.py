@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 
 from config.feishu_fields import FEISHU_WORKTIME_FIELDS
+from config.duty import get_unchecked_monitor
 
 logger = logging.getLogger("feishu")
 
@@ -259,5 +260,9 @@ def load_unchecked_today(client):
                     checked = True
             if has_shift and not checked:
                 unchecked.append(name)
+    # 仅保留监控名单内的成员（名单可热编辑，避免显示非队员）
+    monitor = set(get_unchecked_monitor())
+    if monitor:
+        unchecked = [n for n in unchecked if n in monitor]
     logger.info("worktime: 今日未打卡 %d 人", len(unchecked))
     return unchecked

@@ -51,18 +51,18 @@ export default function Leaderboard() {
     range === 'week' ? p.weekMinutes ?? 0 : p.monthMinutes ?? 0
 
   return (
-    <div className="panel hud-frame px-3 py-2 flex flex-col anim-enter-slow">
-      <div className="flex items-center justify-between mb-1.5">
+    <div className="panel hud-frame px-2.5 py-1.5 flex flex-col anim-enter-slow">
+      <div className="flex items-center justify-between mb-1">
         <span className="panel-title flex items-center gap-1">
-          <Timer size={11} />
+          <Timer size={10} />
           劳模榜 · 工时前三
         </span>
-        <div className="flex text-[10px] rounded border border-base-600 overflow-hidden">
+        <div className="flex text-[9px] rounded border border-base-600 overflow-hidden">
           {(['week', 'month'] as const).map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}
-              className={`px-2 py-0.5 transition-colors ${
+              className={`px-1.5 py-0.5 transition-colors ${
                 range === r
                   ? 'bg-accent-faint text-accent-bright'
                   : 'text-base-400 hover:text-gray-200'
@@ -75,29 +75,29 @@ export default function Leaderboard() {
       </div>
 
       {list.length === 0 ? (
-        <div className="text-[11px] text-base-400 py-3 text-center">
+        <div className="text-[10px] text-base-400 py-2 text-center">
           暂无打卡数据 · 接入飞书考勤/工时表后显示
         </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {list.map((p, i) => {
             const s = RANK_STYLE[i]
             const dur = splitDur(minutesOf(p))
             return (
               <div
                 key={p.userId}
-                className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 card-lift anim-enter ${s.card}`}
+                className={`flex items-center gap-2 rounded-md border px-2 py-1 card-lift anim-enter ${s.card}`}
                 style={{ animationDelay: `${i * 80}ms` }}
               >
-                {s.big && <Crown size={11} className="text-accent-bright shrink-0" />}
+                {s.big && <Crown size={10} className="text-accent-bright shrink-0" />}
                 <span
-                  className={`num-mono text-[11px] font-bold px-1 py-0.5 rounded ${s.chip}`}
+                  className={`num-mono text-[10px] font-bold px-1 py-0.5 rounded ${s.chip}`}
                 >
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <Avatar name={p.userName} url={p.avatarUrl} size={24} />
+                <Avatar name={p.userName} url={p.avatarUrl} size={20} />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-semibold text-gray-100 truncate leading-tight">
+                  <div className="text-[10px] font-semibold text-gray-100 truncate leading-tight">
                     {p.userName || '未命名'}
                   </div>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -107,22 +107,22 @@ export default function Leaderboard() {
                           className="w-1 h-1 rounded-full shrink-0"
                           style={{ background: GROUP_DOT[p.group as Group] ?? '#5a6670' }}
                         />
-                        <span className="text-[9px] text-base-300">{p.group}</span>
+                        <span className="text-[8px] text-base-300">{p.group}</span>
                       </>
                     )}
                   </div>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
                   <div className="flex items-baseline gap-0.5">
-                    <span className={`num-mono font-bold text-lg leading-none ${s.num}`}>
+                    <span className={`num-mono font-bold text-base leading-none ${s.num}`}>
                       {dur.h}
                     </span>
-                    <span className={`num-mono text-[10px] leading-none ${s.num}`}>h</span>
-                    <span className="num-mono text-[11px] text-gray-200 leading-none ml-0.5">
+                    <span className={`num-mono text-[9px] leading-none ${s.num}`}>h</span>
+                    <span className="num-mono text-[10px] text-gray-200 leading-none ml-0.5">
                       {dur.m}m
                     </span>
                   </div>
-                  <span className="text-[8px] text-base-400">
+                  <span className="text-[7px] text-base-400">
                     {s.big ? '第 1 名' : `第 ${i + 1} 名`}
                   </span>
                 </div>

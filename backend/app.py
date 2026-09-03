@@ -131,6 +131,14 @@ def api_people():
     return jsonify(aggregates.compute_people(wp, store.get_tasks()))
 
 
+@app.get("/api/attendance/face-checkin")
+def api_face_checkin():
+    """今日已通过摄像头人脸识别打卡的成员名单。"""
+    from services.face_checkin import read_today_checkin
+
+    return jsonify(read_today_checkin())
+
+
 # ---------------- 静态站点（React dist） ----------------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")

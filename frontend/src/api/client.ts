@@ -24,6 +24,8 @@ export const api = {
     get<WorktimePerson[]>(`/api/worktime/leaderboard?range=${range}`),
   unchecked: () =>
     get<{ names: string[]; date: string }>('/api/worktime/unchecked'),
+  faceCheckin: () =>
+    get<{ names: string[]; date: string }>('/api/attendance/face-checkin'),
   duty: () => get<DutyDay[]>('/api/duty'),
   people: () => get<PeopleSummary[]>('/api/people'),
   health: () => get<Health>('/api/health')

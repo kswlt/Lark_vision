@@ -312,7 +312,7 @@ body {
 /* 未打卡名单横向滚动（从右向左慢速） */
 .unchecked-track {
   will-change: transform;
-  animation: uncheckedX 60s linear infinite;
+  animation: uncheckedX 140s linear infinite;
 }
 @keyframes uncheckedX {
   from {
