@@ -139,6 +139,35 @@ def api_face_checkin():
     return jsonify(read_today_checkin())
 
 
+@app.get("/api/camera/frame")
+def api_camera_frame():
+    """相机实时画面帧（由希沃端 camera_checkin.py 常驻更新）。"""
+    from flask import send_file
+
+    frame_path = os.path.join(BASE_DIR, "face_library", "frame_live.jpg")
+    if not os.path.exists(frame_path):
+        return jsonify({"status": "offline", "message": "camera frame not ready"}), 200
+    resp = send_file(frame_path, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.get("/api/camera/status")
+def api_camera_status():
+    """相机服务状态 + 最后帧时间。"""
+    from datetime import datetime
+
+    frame_path = os.path.join(BASE_DIR, "face_library", "frame_live.jpg")
+    info = {"status": "offline", "frameTime": None, "frameSize": None}
+    if os.path.exists(frame_path):
+        st = os.stat(frame_path)
+        info["status"] = "online"
+        info["frameTime"] = datetime.fromtimestamp(st.st_mtime).strftime("%H:%M:%S")
+        info["frameSize"] = st.st_size
+    return jsonify(info)
+
+
 # ---------------- 静态站点（React dist） ----------------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")

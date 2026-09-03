@@ -8,6 +8,7 @@ import SuperUrgent from '../components/SuperUrgent'
 import TaskDrawer from '../components/TaskDrawer'
 import TaskFeed from '../components/TaskFeed'
 import UncheckedTicker from '../components/UncheckedTicker'
+import CameraPanel from '../components/CameraPanel'
 import { RobotBadge } from '../components/Badge'
 import { fmtDate } from '../lib/format'
 import { daysUntil } from '../lib/format'
@@ -77,8 +78,9 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-stretch">
-        <div className="md:col-span-2">
+        <div className="md:col-span-2 flex flex-col gap-4">
           <Leaderboard />
+          <CameraPanel />
         </div>
         <div className="md:col-span-3 flex flex-col">
           <DutyRoster />
