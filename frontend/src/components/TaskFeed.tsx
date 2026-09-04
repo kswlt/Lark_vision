@@ -68,11 +68,11 @@ export default function TaskFeed({
                     最新：{t.latestUpdate}
                   </span>
                 )}
-                <div className="mt-auto flex items-center gap-1.5 text-[12px] text-gray-300 pt-1">
-                  <span className="truncate font-medium text-gray-100">{t.ownerName || '未分配'}</span>
-                  <span className="text-base-400">·</span>
-                  <span className="flex items-center gap-0.5 shrink-0 text-[11px] text-base-400">
-                    <Flag size={11} />
+                <div className="mt-auto flex items-center gap-1.5 pt-1">
+                  <span className="truncate font-semibold text-gray-100 text-[14px]">{t.ownerName || '未分配'}</span>
+                  <span className="text-base-400 text-[12px]">·</span>
+                  <span className="flex items-center gap-0.5 shrink-0 text-[12px] text-base-300">
+                    <Flag size={12} />
                     {t.dueDate ? fmtDate(t.dueDate) : '—'}
                   </span>
                 </div>
