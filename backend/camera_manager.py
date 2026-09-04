@@ -450,7 +450,9 @@ class CameraManager:
                     preview = cv2.resize(frame, (int(ww * scale), int(hh * scale)))
                 else:
                     preview = frame
-                # 画人脸框（识别线程最新框，原始帧坐标 -> 预览坐标）
+                # 先旋转到显示方向（与 UI 一致，右旋 90°）
+                preview = cv2.rotate(preview, cv2.ROTATE_90_CLOCKWISE)
+                # 画人脸框（识别线程在旋转后帧检测，坐标与显示坐标系一致，直接 *scale）
                 for name, conf, box, recognized in self.get_boxes():
                     x, y, w, h = [int(v) for v in box]
                     x = int(x * scale); y = int(y * scale)
@@ -463,8 +465,6 @@ class CameraManager:
                     cv2.rectangle(preview, (x, ty - th - 4), (x + tw + 6, ty + 2), color, -1)
                     cv2.putText(preview, label, (x + 3, ty - 2),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-                # 旋转 90°（保持与现 UI 一致）
-                preview = cv2.rotate(preview, cv2.ROTATE_90_CLOCKWISE)
                 ok, jpeg = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALITY])
                 if not ok:
                     continue
@@ -518,7 +518,10 @@ class CameraManager:
                 continue
             try:
                 checked, path = read_checkin()
-                results = detect_and_recognize(frame, self._detector, self._rec, self._names)
+                # 识别在右旋 90° 的帧上进行：人脸正立，YuNet/LBPH 检测与识别效果最佳；
+                # 返回框为显示坐标系，预览画框可直接对齐（方向永远正确）。
+                rot = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                results = detect_and_recognize(rot, self._detector, self._rec, self._names)
                 # 共享人脸框供预览画框
                 self.set_boxes(results)
                 now = time.time()
@@ -527,7 +530,7 @@ class CameraManager:
                     # 分类捕获：名单内按姓名存文件夹，陌生人存"陌生人"文件夹（8s 冷却）
                     last_c = last_capture.get(name, 0.0)
                     if now - last_c >= CAPTURE_COOLDOWN:
-                        self._save_capture(frame, box, name)
+                        self._save_capture(rot, box, name)
                         last_capture[name] = now
                     if not recognized:
                         continue
