@@ -36,8 +36,8 @@ import cv2
 # ---------------- 配置（集中管理） ----------------
 CAMERA_TARGET_FPS = 30        # 相机目标帧率（硬件支持时尝试设置）
 PREVIEW_FPS = 24              # 预览编码目标帧率
-PREVIEW_WIDTH = 512           # 预览宽度(降像素提FPS)
-PREVIEW_JPEG_QUALITY = 64     # 预览 JPEG 质量
+PREVIEW_WIDTH = 480           # 预览宽度(锐化后折中流畅度)
+PREVIEW_JPEG_QUALITY = 68     # 预览 JPEG 质量(锐化后平衡流畅度)
 RECOGNITION_FPS = 5           # 识别目标帧率
 DETECTION_MAX_WIDTH = 640     # YuNet 检测最大宽度（检测缩放，避免全分辨率）
 
@@ -507,6 +507,9 @@ class CameraManager:
                     preview = frame
                 # 先旋转到显示方向（与 UI 一致，右旋 90°）
                 preview = cv2.rotate(preview, cv2.ROTATE_90_CLOCKWISE)
+                # 轻微 unsharp 锐化（提升观感清晰度）
+                _blur = cv2.GaussianBlur(preview, (0, 0), 0.8)
+                preview = cv2.addWeighted(preview, 1.5, _blur, -0.5, 0)
                 # 画人脸框（识别线程在旋转后帧检测，坐标与显示坐标系一致，直接 *scale）
                 label_items = []
                 for name, conf, box, recognized in self.get_boxes():
