@@ -177,5 +177,6 @@ def normalize_task(record, fields=None):
         "daysSinceUpdate": days_since,
         "dependency": normalize_field(field("dependency")) or None,
         "blocked": bool(field("blocked")) if isinstance(field("blocked"), bool) else False,
+        "status": normalize_field(field("status")) or None,
         "history": history,
     }

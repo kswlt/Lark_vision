@@ -18,6 +18,7 @@ FEISHU_FIELDS = {
     "due_date": "预计完成日期",
     "dependency": "依赖任务",
     "blocked": "阻塞",
+    "status": "进展",
     # 可选字段：若表格中存在"最近更新时间"字段（日期/时间类型），用于计算"久未更新"
     "latest_update_time": "最近更新时间",
     # 可选字段：若表格中存在"进展历史"字段（文本），用于 Task Drawer 历史信息

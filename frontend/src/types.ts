@@ -20,6 +20,7 @@ export interface Task {
   daysSinceUpdate?: number
   dependency?: string
   blocked?: boolean
+  status?: string
   history?: TaskUpdate[]
 }
 

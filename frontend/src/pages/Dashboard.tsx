@@ -19,7 +19,17 @@ export default function Dashboard() {
   const { dashboard, tasks, loading } = useData()
   const [selected, setSelected] = useState<Task | null>(null)
 
-  const timeline = useMemo(() => dashboard?.timeline ?? [], [dashboard])
+  // 过滤掉已停滞 / 已完成的任务（只展示进行中的安排）
+  const activeTasks = useMemo(
+    () =>
+      tasks.filter((t) => {
+        const s = t.status || ''
+        if (s.includes('完成') || s.includes('停滞') || s.includes('停止')) return false
+        return true
+      }),
+    [tasks]
+  )
+  const timeline = useMemo(() => (dashboard?.timeline ?? []).filter((t) => activeTasks.includes(t)), [dashboard, activeTasks])
 
   // 任务动态：按"活跃度"排序（有最新进展 > 紧急 > 延期 > 未完成 > 表格顺序），
   // 让飞书里刚更新/推进的任务浮到动态前部，而不是固定取表格前 40 条。
@@ -31,14 +41,14 @@ export default function Dashboard() {
       if (t.overdue) s += 20
       if (t.blocked) s += 10
       if (!t.actualFinishDate) s += 10
-      return s + (tasks.length - i) / 1e6 // 保持表格顺序稳定兜底
+      return s + (activeTasks.length - i) / 1e6 // 保持表格顺序稳定兜底
     }
-    return [...tasks]
+    return activeTasks
       .map((t, i) => ({ t, i }))
       .sort((a, b) => score(b.t, b.i) - score(a.t, a.i))
       .map((x) => x.t)
       .slice(0, 40)
-  }, [tasks])
+  }, [activeTasks])
   const milestones = useMemo<Milestone[]>(
     () =>
       seasonMilestones.map((m) => ({

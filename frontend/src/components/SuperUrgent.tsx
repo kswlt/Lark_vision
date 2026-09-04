@@ -9,9 +9,14 @@ import type { Task } from '../types'
 export default function SuperUrgent({ onOpen }: { onOpen: (t: Task) => void }) {
   const { tasks } = useData()
   const list = useMemo(() => {
-    const superList = tasks.filter((t) => t.priority === 'super_urgent')
+    const active = tasks.filter((t) => {
+      const s = t.status || ''
+      if (s.includes('完成') || s.includes('停滞') || s.includes('停止')) return false
+      return true
+    })
+    const superList = active.filter((t) => t.priority === 'super_urgent')
     if (superList.length) return superList.slice(0, 6)
-    return tasks
+    return active
       .filter((t) => t.priority === 'important_urgent' && t.overdue)
       .slice(0, 6)
   }, [tasks])
