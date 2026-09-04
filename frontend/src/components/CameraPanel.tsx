@@ -75,7 +75,7 @@ export default function CameraPanel() {
     >
       <div className="panel-title mb-1.5 flex items-center gap-2">
         <ScanFace size={15} className="text-accent" />
-        人脸识别打卡
+        飞书补充打卡
         <span className="ml-auto flex items-center gap-2 text-[11px]">
           {live > 0 && (
             <span className="num-mono text-base-300">

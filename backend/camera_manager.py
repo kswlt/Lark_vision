@@ -42,7 +42,7 @@ RECOGNITION_FPS = 5           # 识别目标帧率
 DETECTION_MAX_WIDTH = 640     # YuNet 检测最大宽度（检测缩放，避免全分辨率）
 
 FACE_SIZE = 112
-CONF_THRESHOLD = 70           # LBPH confidence（越小越像）
+CONF_THRESHOLD = 90           # LBPH confidence（越小越像；61人单样本训练，70过严导致全陌生人，放宽到90）
 MIN_DETECT_SCORE = 0.5
 SAME_PERSON_COOLDOWN = 300    # 秒，同人重复打卡冷却
 CAPTURE_COOLDOWN = 8          # 秒，同人捕获冷却
@@ -318,12 +318,12 @@ def detect_and_recognize(img, detector, rec, names, threshold=CONF_THRESHOLD):
             idx, conf = rec.predict(face)
         except Exception as e:  # noqa: BLE001
             log.warning("predict err: %s", e)
-            results.append(("陌生人", 999.0, (ox, oy, ow, oh), False))
+            results.append(("不在数据库中", 999.0, (ox, oy, ow, oh), False))
             continue
         if 0 <= idx < len(names) and conf <= threshold:
             results.append((names[idx], round(float(conf), 1), (ox, oy, ow, oh), True))
         else:
-            results.append(("陌生人", round(float(conf), 1), (ox, oy, ow, oh), False))
+            results.append(("不在数据库中", round(float(conf), 1), (ox, oy, ow, oh), False))
     return results
 
 
@@ -503,7 +503,7 @@ class CameraManager:
                     x = int(x * scale); y = int(y * scale)
                     w = int(w * scale); h = int(h * scale)
                     color = (30, 111, 240) if recognized else (30, 170, 250)  # BGR 蓝/黄
-                    label = name if recognized else "陌生人"
+                    label = name if recognized else "不在数据库中"
                     cv2.rectangle(preview, (x, y), (x + w, y + h), color, 2)
                     label_items.append((x, y, h, label, color))
                 # PIL 画中文姓名（cv2.putText 中文会乱码为问号）
@@ -571,7 +571,7 @@ class CameraManager:
                 now = time.time()
                 any_member = False
                 for name, conf, box, recognized in results:
-                    # 分类捕获：名单内按姓名存文件夹，陌生人存"陌生人"文件夹（8s 冷却）
+                    # 分类捕获：名单内按姓名存文件夹，不在数据库中存"不在数据库中"文件夹（8s 冷却）
                     last_c = last_capture.get(name, 0.0)
                     if now - last_c >= CAPTURE_COOLDOWN:
                         self._save_capture(rot, box, name)
@@ -591,7 +591,7 @@ class CameraManager:
                     log.info("已打卡: %s (conf=%.1f)", name, conf)
                     self._write_last_recognition(name, "checked", conf)
                 if results and not any_member:
-                    self._write_last_recognition("陌生人", "stranger")
+                    self._write_last_recognition("不在数据库中", "stranger")
                 elif any_member:
                     name0 = next((r[0] for r in results if r[3]), "成员")
                     self._write_last_recognition(name0, "seen")
