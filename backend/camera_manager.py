@@ -35,11 +35,11 @@ import cv2
 
 # ---------------- 配置（集中管理） ----------------
 CAMERA_TARGET_FPS = 30        # 相机目标帧率（硬件支持时尝试设置）
-PREVIEW_FPS = 24              # 预览编码目标帧率
-PREVIEW_WIDTH = 480           # 预览宽度(锐化后折中流畅度)
-PREVIEW_JPEG_QUALITY = 68     # 预览 JPEG 质量(锐化后平衡流畅度)
-RECOGNITION_FPS = 5           # 识别目标帧率
-DETECTION_MAX_WIDTH = 640     # YuNet 检测最大宽度（检测缩放，避免全分辨率）
+PREVIEW_FPS = 30              # 预览编码目标帧率(实测预览链路仅8.5ms/帧，YuNet释放CPU后可到30)
+PREVIEW_WIDTH = 416           # 预览宽度(双核极限平衡画质与流畅)
+PREVIEW_JPEG_QUALITY = 64     # 预览 JPEG 质量
+RECOGNITION_FPS = 3           # 识别目标帧率(双核CPU满载,3fps保打卡且给preview让算力)
+DETECTION_MAX_WIDTH = 320     # YuNet 检测最大宽度（i3双核CPU满载，320宽~23ms/帧保识别5fps并给预览腾算力）
 
 FACE_SIZE = 112
 CONF_THRESHOLD = 100          # LBPH confidence（越小越像；实测现场同人100-140、单样本区分度差，140会误认；降到100宁可拒也不误认，待补多张照片重训后提高准确率）
@@ -152,6 +152,23 @@ def _draw_cn_labels(preview, labels):
     except Exception:
         return False
 
+
+# ---------------- 线程优先级辅助（Win7 双核 CPU 满载：给 preview 更高调度优先级，识别降为后台） ----------------
+import ctypes as _ct
+def _set_thread_prio(prio):
+    try:
+        _ct.windll.kernel32.SetThreadPriority(_ct.windll.kernel32.GetCurrentThread(), prio)
+    except Exception:
+        pass
+PRIO_ABOVE = 1    # THREAD_PRIORITY_ABOVE_NORMAL
+PRIO_NORMAL = 0
+PRIO_BELOW = -1   # THREAD_PRIORITY_BELOW_NORMAL
+def _set_thread_affinity(mask):
+    """绑定线程到指定逻辑 CPU（0x1=CPU0 0x4=CPU2）。双核满载时隔离预览核，防被饿死。"""
+    try:
+        _ct.windll.kernel32.SetThreadAffinityMask(_ct.windll.kernel32.GetCurrentThread(), mask)
+    except Exception:
+        pass
 
 # ---------------- 内部流状态 + HTTP 服务（跨 Session 无权限问题，Flask 代理） ----------------
 _STATE_LOCK = threading.Lock()
@@ -469,6 +486,7 @@ class CameraManager:
 
     # ---------- 采集线程 ----------
     def capture_loop(self):
+        _set_thread_prio(PRIO_NORMAL)
         log.info("capture thread started")
         while self.running.is_set():
             try:
@@ -491,7 +509,12 @@ class CameraManager:
 
     # ---------- 预览线程 ----------
     def preview_loop(self):
+        _set_thread_prio(PRIO_ABOVE)
         log.info("preview thread started")
+        _prof = {}
+        _prof_last = time.time()
+        def _acc(k, dt_ms):
+            _prof.setdefault(k, []).append(dt_ms)
         while self.running.is_set():
             start = time.perf_counter()
             frame = self.get_latest_frame()
@@ -505,11 +528,13 @@ class CameraManager:
                     preview = cv2.resize(frame, (int(ww * scale), int(hh * scale)))
                 else:
                     preview = frame
+                _acc("resize", (time.perf_counter() - start) * 1000.0)
                 # 先旋转到显示方向（与 UI 一致，右旋 90°）
                 preview = cv2.rotate(preview, cv2.ROTATE_90_CLOCKWISE)
-                # 轻微 unsharp 锐化（提升观感清晰度）
-                _blur = cv2.GaussianBlur(preview, (0, 0), 0.8)
-                preview = cv2.addWeighted(preview, 1.5, _blur, -0.5, 0)
+                # 轻量锐化 filter2D 3x3（GaussianBlur 在双核满载下极贵，改用卷积核提速）
+                _k = np.array([[-0.1, -0.1, -0.1], [-0.1, 1.8, -0.1], [-0.1, -0.1, -0.1]], dtype=np.float32)
+                preview = cv2.filter2D(preview, -1, _k)
+                _acc("rotate", (time.perf_counter() - start) * 1000.0)
                 # 画人脸框（识别线程在旋转后帧检测，坐标与显示坐标系一致，直接 *scale）
                 label_items = []
                 for name, conf, box, recognized in self.get_boxes():
@@ -520,30 +545,43 @@ class CameraManager:
                     label = name if recognized else "不在数据库中"
                     cv2.rectangle(preview, (x, y), (x + w, y + h), color, 2)
                     label_items.append((x, y, h, label, color))
+                _acc("boxes", (time.perf_counter() - start) * 1000.0)
                 # 框每帧实时；PIL 中文姓名隔帧绘制（降 CPU，Win7 老机器）
                 self._label_cnt = getattr(self, '_label_cnt', 0) + 1
-                if label_items and self._label_cnt % 2 == 0:
+                if label_items and self._label_cnt % 4 == 0:
                     _draw_cn_labels(preview, label_items)
+                _acc("pil", (time.perf_counter() - start) * 1000.0)
                 ok, jpeg = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALITY])
                 if not ok:
                     continue
+                _acc("enc", (time.perf_counter() - start) * 1000.0)
                 # 发布到内部状态（内存共享，无磁盘 IO；Flask 通过内部 HTTP 代理）
                 _publish(jpeg.tobytes(), self.latest_ts if self.latest_ts else time.time(),
                          self.fps_capture.fps(), self.fps_preview.fps(), self.fps_recognition.fps(),
                          self.connected)
-                # 低频兼容写 frame_live.jpg（1 秒一次）
+                # 低频兼容写 frame_live.jpg（1 秒一次，复用已编码 jpeg，避免重复 imencode）
                 now = time.time()
                 if now - self._last_frame_live >= 1.0:
                     self._last_frame_live = now
                     try:
-                        cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALITY])[1].tofile(FRAME_LIVE)
+                        jpeg.tofile(FRAME_LIVE)
                     except Exception:  # noqa: BLE001
                         pass
+                _acc("pub", (time.perf_counter() - start) * 1000.0)
                 self.fps_preview.tick()
+                if now - _prof_last >= 5.0:
+                    _prof_last = now
+                    def _md(k):
+                        v = _prof.get(k)
+                        return round(sum(v) / len(v), 2) if v else 0.0
+                    log.info("PROF preview get=%.2f resize=%.2f rotate=%.2f boxes=%.2f pil=%.2f enc=%.2f pub=%.2f total=%.2fms fps=%.1f",
+                             _md("get"), _md("resize"), _md("rotate"), _md("boxes"), _md("pil"), _md("enc"), _md("pub"), _md("total"), self.fps_preview.fps())
+                    _prof = {}
             except Exception as e:  # noqa: BLE001
                 import traceback as _tb
                 log.warning("preview error: %s\n%s", e, _tb.format_exc())
             elapsed = time.perf_counter() - start
+            _acc("total", elapsed * 1000.0)
             sleep_t = max(0.0, (1.0 / PREVIEW_FPS) - elapsed)
             time.sleep(sleep_t)
         log.info("preview thread stopped")
@@ -566,6 +604,7 @@ class CameraManager:
             log.warning("write last recognition failed: %s", e)
 
     def recognition_loop(self):
+        _set_thread_prio(PRIO_BELOW)
         log.info("recognition thread started, 名单 %d 人", len(self._names))
         last_seen = {}
         last_capture = {}
