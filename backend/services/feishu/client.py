@@ -11,7 +11,7 @@ from .token import TokenManager
 
 logger = logging.getLogger("feishu")
 
-BASE = "https://open.feishu.cn"
+BASE = "https://open.feishu.cn/open-apis"
 
 
 class FeishuClient(object):

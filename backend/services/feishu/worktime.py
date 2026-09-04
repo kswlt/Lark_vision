@@ -44,7 +44,7 @@ def _fetch_all_user_ids(client):
             }
             if page_token:
                 params["page_token"] = page_token
-            data = client.get("/open-apis/contact/v3/users/find_by_department", params)
+            data = client.get("/contact/v3/users/find_by_department", params)
             for u in (data.get("items") or []):
                 uid = u.get("user_id")
                 if uid and uid not in seen:
@@ -62,7 +62,7 @@ def _fetch_all_user_ids(client):
 
     try:
         data = client.get(
-            "/open-apis/contact/v3/departments",
+            "/contact/v3/departments",
             {"parent_department_id": "0", "department_id_type": "open_department_id"},
         )
         depts = [d.get("open_department_id") for d in (data.get("items") or [])] or ["0"]
@@ -149,7 +149,7 @@ def load_from_attendance(client, start_date, end_date):
         batch = user_ids[i:i + 50]
         try:
             data = client.post(
-                "/open-apis/attendance/v1/user_tasks/query?employee_type=employee_id",
+                "/attendance/v1/user_tasks/query?employee_type=employee_id",
                 {
                     "user_ids": batch,
                     "check_date_from": start_int,
@@ -235,7 +235,7 @@ def load_unchecked_today(client):
         batch = user_ids[i:i + 50]
         try:
             data = client.post(
-                "/open-apis/attendance/v1/user_tasks/query?employee_type=employee_id",
+                "/attendance/v1/user_tasks/query?employee_type=employee_id",
                 {
                     "user_ids": batch,
                     "check_date_from": today_int,

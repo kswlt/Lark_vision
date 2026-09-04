@@ -33,7 +33,7 @@ class UserCache(object):
     def _fetch(self, user_id, id_type):
         try:
             data = self._client.get(
-                "/open-apis/contact/v3/users/%s" % quote(user_id),
+                "/contact/v3/users/%s" % quote(user_id),
                 params={"user_id_type": id_type},
             )
             user = data.get("user") or {}

@@ -15,7 +15,7 @@ def list_records(client, app_token, table_id, page_size=500, max_pages=20):
         if page_token:
             params["page_token"] = page_token
         data = client.get(
-            "/open-apis/bitable/v1/apps/%s/tables/%s/records" % (app_token, table_id),
+            "/bitable/v1/apps/%s/tables/%s/records" % (app_token, table_id),
             params=params,
         )
         records.extend(data.get("items") or [])
