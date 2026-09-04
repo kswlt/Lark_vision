@@ -28,7 +28,7 @@ logger = logging.getLogger("sources")
 
 TASKS_TTL = 45
 WORKTIME_TTL = 300
-UNCHECKED_TTL = 120
+UNCHECKED_TTL = 60
 DUTY_TTL = 120
 
 
@@ -86,12 +86,17 @@ class DataStore(object):
             cur = getattr(self, state_name)
             if cur is not None:
                 return cur
-        # 无旧缓存：短暂等待刷新结果
-        import time as _t
-
-        _t.sleep(0.5)
+        # 无旧缓存（冷启动）：等待刷新线程完成，最多 10 秒，避免返回 None
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            time.sleep(0.3)
+            with self._lock:
+                cur = getattr(self, state_name)
+                if cur is not None:
+                    return cur
         with self._lock:
-            return getattr(self, state_name)
+            cur = getattr(self, state_name)
+            return cur if cur is not None else []
 
     @property
     def data_source(self):

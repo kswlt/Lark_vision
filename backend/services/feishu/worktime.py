@@ -256,7 +256,11 @@ def load_unchecked_today(client):
                 cout_res = rc.get("check_out_result")
                 if cin_res not in (None, "NoNeedCheck") or cout_res not in (None, "NoNeedCheck"):
                     has_shift = True
-                if cin_res == "Normal" or cout_res == "Normal":
+                # 判定"已打卡"依据是否存在实际打卡时间戳，
+                # 而非 result 枚举——迟到(Late)/早退(Early)同样算已打卡。
+                cin_rec = rc.get("check_in_record") or {}
+                cout_rec = rc.get("check_out_record") or {}
+                if cin_rec.get("check_time") or cout_rec.get("check_time"):
                     checked = True
             if has_shift and not checked:
                 unchecked.append(name)
