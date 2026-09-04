@@ -63,6 +63,11 @@ export default function TaskFeed({
                 <span className="text-[12px] text-gray-200 leading-snug line-clamp-2">
                   {t.title}
                 </span>
+                {t.latestUpdate && (
+                  <span className="text-[11px] text-base-300 leading-snug line-clamp-1 truncate">
+                    最新：{t.latestUpdate}
+                  </span>
+                )}
                 <div className="mt-auto flex items-center gap-1.5 text-[12px] text-gray-300 pt-1">
                   <span className="truncate font-medium text-gray-100">{t.ownerName || '未分配'}</span>
                   <span className="text-base-400">·</span>

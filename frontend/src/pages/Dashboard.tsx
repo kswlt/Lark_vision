@@ -20,6 +20,25 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<Task | null>(null)
 
   const timeline = useMemo(() => dashboard?.timeline ?? [], [dashboard])
+
+  // 任务动态：按"活跃度"排序（有最新进展 > 紧急 > 延期 > 未完成 > 表格顺序），
+  // 让飞书里刚更新/推进的任务浮到动态前部，而不是固定取表格前 40 条。
+  const feed = useMemo(() => {
+    const score = (t: Task, i: number): number => {
+      let s = 0
+      if (t.latestUpdate) s += 100 // 有最新进展：正在推进
+      if (t.priority === 'super_urgent' || t.priority === 'important_urgent') s += 40
+      if (t.overdue) s += 20
+      if (t.blocked) s += 10
+      if (!t.actualFinishDate) s += 10
+      return s + (tasks.length - i) / 1e6 // 保持表格顺序稳定兜底
+    }
+    return [...tasks]
+      .map((t, i) => ({ t, i }))
+      .sort((a, b) => score(b.t, b.i) - score(a.t, a.i))
+      .map((x) => x.t)
+      .slice(0, 40)
+  }, [tasks])
   const milestones = useMemo<Milestone[]>(
     () =>
       seasonMilestones.map((m) => ({
@@ -44,8 +63,8 @@ export default function Dashboard() {
 
       <CountdownRow milestones={milestones} />
 
-      {/* 任务动态：页面主角，横贯全宽，40 条横向滚动 */}
-      <TaskFeed onOpen={setSelected} feed={tasks.slice(0, 40)} />
+      {/* 任务动态：页面主角，横贯全宽，40 条横向滚动（按活跃度排序） */}
+      <TaskFeed onOpen={setSelected} feed={feed} />
 
       {/* 超级紧急（左） + 未来 7 天（右） */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
