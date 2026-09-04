@@ -9,6 +9,18 @@ export default function UncheckedTicker() {
   const containerRef = useRef<HTMLDivElement>(null)
   const meterRef = useRef<HTMLDivElement>(null)
   const [overflow, setOverflow] = useState(false)
+  const [showChecked, setShowChecked] = useState(false)
+  const checkedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 已刷脸名单：仅在有人打卡后短暂显示约 8 秒，不持续挂屏
+  const checkedKey = checked.join(',')
+  useEffect(() => {
+    if (checked.length) {
+      setShowChecked(true)
+      if (checkedTimer.current) clearTimeout(checkedTimer.current)
+      checkedTimer.current = setTimeout(() => setShowChecked(false), 8000)
+    }
+  }, [checkedKey, checked.length])
 
   // 检测内容是否超出容器宽度；放得下就不滚动，溢出才滚动
   useEffect(() => {
@@ -72,8 +84,8 @@ export default function UncheckedTicker() {
           </span>
         )}
       </div>
-      {/* 今日已刷脸 */}
-      {checked.length > 0 && (
+      {/* 今日已刷脸：打卡后短暂显示 8 秒 */}
+      {showChecked && checked.length > 0 && (
         <span className="shrink-0 flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-1">
           <ScanFace size={18} className="text-green-600" />
           <span className="text-[14px] font-bold text-green-700 whitespace-nowrap">

@@ -35,14 +35,14 @@ import cv2
 
 # ---------------- 配置（集中管理） ----------------
 CAMERA_TARGET_FPS = 30        # 相机目标帧率（硬件支持时尝试设置）
-PREVIEW_FPS = 20              # 预览编码目标帧率
-PREVIEW_WIDTH = 640           # 预览宽度
-PREVIEW_JPEG_QUALITY = 70     # 预览 JPEG 质量
+PREVIEW_FPS = 24              # 预览编码目标帧率
+PREVIEW_WIDTH = 512           # 预览宽度(降像素提FPS)
+PREVIEW_JPEG_QUALITY = 64     # 预览 JPEG 质量
 RECOGNITION_FPS = 5           # 识别目标帧率
 DETECTION_MAX_WIDTH = 640     # YuNet 检测最大宽度（检测缩放，避免全分辨率）
 
 FACE_SIZE = 112
-CONF_THRESHOLD = 90           # LBPH confidence（越小越像；61人单样本训练，70过严导致全陌生人，放宽到90）
+CONF_THRESHOLD = 100          # LBPH confidence（越小越像；实测现场同人100-140、单样本区分度差，140会误认；降到100宁可拒也不误认，待补多张照片重训后提高准确率）
 MIN_DETECT_SCORE = 0.5
 SAME_PERSON_COOLDOWN = 300    # 秒，同人重复打卡冷却
 CAPTURE_COOLDOWN = 8          # 秒，同人捕获冷却
@@ -121,22 +121,33 @@ def _get_font(size=18):
 
 def _draw_cn_labels(preview, labels):
     """用 PIL 在 BGR numpy 帧上画中文姓名标签。labels: [(x, y, h, text, color_bgr)]。
-    无人脸时不调用，避免整帧转换开销。"""
+    只对每个标签的小 ROI 做 PIL 转换，避免整帧 BGR<->RGB 双转换拖慢预览。"""
     try:
         from PIL import Image, ImageDraw
         font = _get_font()
         if font is None:
             return False
-        pil = Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB))
-        d = ImageDraw.Draw(pil)
+        hh, ww = preview.shape[:2]
         for (x, y, h, text, color) in labels:
-            bbox = d.textbbox((0, 0), text, font=font)
-            tw = bbox[2] - bbox[0]; th = bbox[3] - bbox[1]
-            ty = y - th - 8 if y - th - 8 > 0 else y + h + 4
-            fill = (int(color[2]), int(color[1]), int(color[0]))
-            d.rectangle([x, ty, x + tw + 8, ty + th + 4], fill=fill)
-            d.text((x + 4, ty), text, font=font, fill=(255, 255, 255))
-        preview[:] = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+            try:
+                bbox = font.getbbox(text)
+                tw = bbox[2] - bbox[0]; th = bbox[3] - bbox[1]
+                ty = y - th - 8 if y - th - 8 > 0 else y + h + 4
+                pad = 4
+                x0, y0 = x, ty
+                x1, y1 = x + tw + 2 * pad, ty + th + 2 * pad
+                if x0 < 0 or y0 < 0 or x1 > ww or y1 > hh:
+                    continue
+                roi = preview[y0:y1, x0:x1].copy()
+                pil = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+                d = ImageDraw.Draw(pil)
+                d.rectangle([0, 0, x1 - x0 - 1, y1 - y0 - 1],
+                            fill=(int(color[2]), int(color[1]), int(color[0])))
+                d.text((pad, pad), text, font=font, fill=(255, 255, 255))
+                roi[:] = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+                preview[y0:y1, x0:x1] = roi
+            except Exception:
+                continue
         return True
     except Exception:
         return False
@@ -506,8 +517,9 @@ class CameraManager:
                     label = name if recognized else "不在数据库中"
                     cv2.rectangle(preview, (x, y), (x + w, y + h), color, 2)
                     label_items.append((x, y, h, label, color))
-                # PIL 画中文姓名（cv2.putText 中文会乱码为问号）
-                if label_items:
+                # 框每帧实时；PIL 中文姓名隔帧绘制（降 CPU，Win7 老机器）
+                self._label_cnt = getattr(self, '_label_cnt', 0) + 1
+                if label_items and self._label_cnt % 2 == 0:
                     _draw_cn_labels(preview, label_items)
                 ok, jpeg = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALITY])
                 if not ok:

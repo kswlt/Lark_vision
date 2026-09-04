@@ -60,11 +60,11 @@ export default function TaskFeed({
                     <span className={`ml-auto text-[10px] shrink-0 ${st.cls}`}>{st.label}</span>
                   )}
                 </div>
-                <span className="text-[12px] text-gray-200 leading-snug line-clamp-2">
+                <span className="text-[14px] text-gray-200 leading-snug line-clamp-2 font-medium">
                   {t.title}
                 </span>
                 {t.latestUpdate && (
-                  <span className="text-[11px] text-base-300 leading-snug line-clamp-1 truncate">
+                  <span className="text-[12px] text-base-300 leading-snug line-clamp-1 truncate">
                     最新：{t.latestUpdate}
                   </span>
                 )}
