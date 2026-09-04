@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Video, ScanFace } from 'lucide-react'
+import { ScanFace } from 'lucide-react'
 
 /** 相机实时画面小窗口：定时轮询 /api/camera/frame */
 export default function CameraPanel() {
@@ -19,7 +19,10 @@ export default function CameraPanel() {
   }, [tick])
 
   return (
-    <div className="anim-enter-slow w-full max-w-sm" style={{ animationDelay: '60ms' }}>
+    <div
+      className="anim-enter-slow w-full h-full flex flex-col"
+      style={{ animationDelay: '60ms' }}
+    >
       <div className="panel-title mb-1.5 flex items-center gap-2">
         <ScanFace size={15} className="text-accent" />
         人脸识别打卡
@@ -32,12 +35,12 @@ export default function CameraPanel() {
           {frameTime ? `实时 ${frameTime}` : '相机未连接'}
         </span>
       </div>
-      <div className="panel overflow-hidden p-0">
-        <div className="relative aspect-[4/5] bg-black/5">
+      <div className="panel overflow-hidden p-0 flex-1 min-h-0">
+        <div className="relative h-full w-full bg-black/5">
           <img
             src={`/api/camera/frame?t=${tick}`}
             alt="相机画面"
-            className="h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover"
             onError={(e) => {
               ;(e.target as HTMLImageElement).style.opacity = '0.15'
             }}
