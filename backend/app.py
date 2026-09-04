@@ -12,6 +12,7 @@ RoboMaster Team Adam 进度管理系统 —— Flask 后端入口。
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
@@ -139,33 +140,101 @@ def api_face_checkin():
     return jsonify(read_today_checkin())
 
 
+INTERNAL_CAM = "http://127.0.0.1:18080"  # camera_checkin 内部流服务（跨 Session 无权限问题）
+
+
 @app.get("/api/camera/frame")
 def api_camera_frame():
-    """相机实时画面帧（由希沃端 camera_checkin.py 常驻更新）。"""
-    from flask import send_file
+    """兼容接口：代理内部流服务的单帧 JPEG（实时链路已改 /api/camera/stream）。"""
+    import urllib.request
+    try:
+        req = urllib.request.Request(INTERNAL_CAM + "/frame", headers={"User-Agent": "RM/1.0"})
+        data = urllib.request.urlopen(req, timeout=3).read()
+        if not data:
+            return jsonify({"status": "offline", "message": "camera frame not ready"}), 200
+        from flask import Response
 
-    frame_path = os.path.join(BASE_DIR, "face_library", "frame_live.jpg")
-    if not os.path.exists(frame_path):
+        return Response(data, mimetype="image/jpeg",
+                        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                                 "Pragma": "no-cache"})
+    except Exception:
         return jsonify({"status": "offline", "message": "camera frame not ready"}), 200
-    resp = send_file(frame_path, mimetype="image/jpeg")
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+
+
+@app.get("/api/camera/stream")
+def api_camera_stream():
+    """MJPEG 实时视频流：代理内部流服务（camera_checkin 进程内存缓存，非磁盘轮询）。"""
+    import urllib.request
+    from flask import Response
+
+    def generate():
+        resp = None
+        try:
+            req = urllib.request.Request(INTERNAL_CAM + "/stream", headers={"User-Agent": "RM/1.0"})
+            resp = urllib.request.urlopen(req, timeout=10)
+            while True:
+                chunk = resp.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+        except Exception:
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                   b"\xff\xd8\xff\xdb\x00\x84\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\xff\xd9"
+                   b"\r\n")  # 极小占位 JPEG，避免 <img> 报错
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.get("/api/camera/status")
 def api_camera_status():
-    """相机服务状态 + 最后帧时间。"""
+    """相机服务状态 + FPS 统计（来自内部流服务指标）。"""
+    import urllib.request
     from datetime import datetime
 
-    frame_path = os.path.join(BASE_DIR, "face_library", "frame_live.jpg")
-    info = {"status": "offline", "frameTime": None, "frameSize": None}
-    if os.path.exists(frame_path):
-        st = os.stat(frame_path)
-        info["status"] = "online"
-        info["frameTime"] = datetime.fromtimestamp(st.st_mtime).strftime("%H:%M:%S")
-        info["frameSize"] = st.st_size
+    info = {
+        "status": "offline", "connected": False, "frameTime": None,
+        "capture_fps": 0.0, "preview_fps": 0.0, "recognition_fps": 0.0,
+        "frame_age_ms": None, "camera": {},
+    }
+    try:
+        req = urllib.request.Request(INTERNAL_CAM + "/status", headers={"User-Agent": "RM/1.0"})
+        raw = urllib.request.urlopen(req, timeout=3).read().decode("utf-8", "ignore")
+        import json as _json
+
+        d = _json.loads(raw)
+        info["connected"] = bool(d.get("connected"))
+        info["capture_fps"] = d.get("capture_fps", 0.0)
+        info["preview_fps"] = d.get("preview_fps", 0.0)
+        info["recognition_fps"] = d.get("recognition_fps", 0.0)
+        ts = d.get("ts", 0)
+        if ts:
+            info["frameTime"] = datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+            info["frame_age_ms"] = int((time.time() - ts) * 1000)
+        info["status"] = "online" if d.get("connected") else "offline"
+    except Exception:
+        pass
     return jsonify(info)
+
+
+@app.get("/api/attendance/face-latest")
+def api_face_latest():
+    """最近一次人脸识别结果：打卡成功 / 识别到成员 / 陌生人（供前端 UI 提示）。"""
+    import json as _json
+
+    p = os.path.join(BASE_DIR, "face_library", "last_recognition.json")
+    if not os.path.exists(p):
+        return jsonify({"name": None, "time": None, "status": None})
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return jsonify(_json.load(f))
+    except Exception:
+        return jsonify({"name": None, "time": None, "status": None})
 
 
 # ---------------- 静态站点（React dist） ----------------
