@@ -37,6 +37,16 @@ body {
   background: #a9b5bf;
 }
 
+/* 劳模榜等局部滚动区：更细的滚动条，低调不抢内容 */
+.leader-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.leader-scroll::-webkit-scrollbar-thumb {
+  background: #b8c2cb;
+  border-radius: 3px;
+}
+
 @layer components {
   .panel {
     @apply bg-base-850 border border-base-600 rounded-md;

@@ -201,7 +201,8 @@ def _sum_range(records, start):
     return acc
 
 
-def compute_worktime_leaderboard(records, range_key, limit=10):
+def compute_worktime_leaderboard(records, range_key, limit=500):
+    """返回指定周期工时排行（默认返回全部有打卡的人，供前端滚动展示）。"""
     today = _today()
     start = _week_start(today) if range_key == "week" else _month_start(today)
     acc = _sum_range(records, start)

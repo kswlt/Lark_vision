@@ -140,6 +140,21 @@ def api_face_checkin():
     return jsonify(read_today_checkin())
 
 
+@app.get("/api/checkin/sync")
+def api_checkin_sync():
+    """手动触发：把希沃人脸打卡记录同步到飞书「打卡记录」表（幂等）。"""
+    from services.feishu.sync_checkin import sync_checkin_to_feishu
+
+    if not store.client:
+        return jsonify({"status": "error", "message": "飞书未配置"}), 200
+    try:
+        r = sync_checkin_to_feishu(store.client, store.app_token)
+        return jsonify({"status": "ok", **r})
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning("checkin sync API error: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 200
+
+
 INTERNAL_CAM = "http://127.0.0.1:18080"  # camera_checkin 内部流服务（跨 Session 无权限问题）
 
 
@@ -285,9 +300,41 @@ def handle_error(e):
     return jsonify({"status": "error", "message": "internal error"}), 500
 
 
+def _checkin_sync_loop():
+    """后台定时：每天 22:00 把希沃人脸打卡同步到飞书（幂等）。启动后首个整点也会补一次。"""
+    from services.feishu.sync_checkin import sync_checkin_to_feishu
+
+    if not store.client:
+        app.logger.info("checkin sync: 飞书未配置，定时同步停用")
+        return
+    synced_today = False
+    while True:
+        try:
+            now = datetime.now()
+            # 每天 22:00 后同步一次；非 22 点窗口重置标记（允许第二天再同步）
+            if now.hour >= 22 and not synced_today:
+                try:
+                    r = sync_checkin_to_feishu(store.client, store.app_token)
+                    app.logger.info("checkin sync scheduled: %s", r)
+                except Exception as e:  # noqa: BLE001
+                    app.logger.warning("checkin sync scheduled error: %s", e)
+                synced_today = True
+            if now.hour < 22:
+                synced_today = False
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(300)
+
+
 def main():
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
+    # 后台定时：人脸打卡每日同步飞书（幂等；写权限未开通只记日志不影响主服务）
+    if os.environ.get("FEISHU_CHECKIN_SYNC_ENABLED", "1") == "1":
+        import threading
+
+        threading.Thread(target=_checkin_sync_loop, daemon=True).start()
+        app.logger.info("checkin 每日同步飞书定时任务已启动（每天 22:00）")
     if "--dev" in sys.argv:
         app.logger.info("开发模式 Flask dev server: http://localhost:%s", port)
         app.run(host=host, port=port, debug=True, threaded=True)

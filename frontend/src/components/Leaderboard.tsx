@@ -42,20 +42,22 @@ const RANK_STYLE = [
   }
 ]
 
-/** 劳模榜：竖排三行，与 KPI 同行两列 */
+/** 劳模榜：竖排全量可滚动（超过面板高度上下滚动），与 KPI 同行两列 */
 export default function Leaderboard() {
   const { worktimeWeek, worktimeMonth } = useData()
   const [range, setRange] = useState<'week' | 'month'>('week')
-  const list = (range === 'week' ? worktimeWeek : worktimeMonth).slice(0, 3)
+  const full = range === 'week' ? worktimeWeek : worktimeMonth
+  // 前 3 用高亮样式，第 4 名起复用普通样式
+  const list = full.map((p, i) => ({ p, s: RANK_STYLE[Math.min(i, 2)] }))
   const minutesOf = (p: WorktimeEntry) =>
     range === 'week' ? p.weekMinutes ?? 0 : p.monthMinutes ?? 0
 
   return (
     <div className="panel hud-frame px-2.5 py-1.5 flex flex-col anim-enter-slow">
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between mb-1 shrink-0">
         <span className="panel-title flex items-center gap-1">
           <Timer size={10} />
-          劳模榜 · 工时前三
+          劳模榜 · 工时排行
         </span>
         <div className="flex text-[9px] rounded border border-base-600 overflow-hidden">
           {(['week', 'month'] as const).map((r) => (
@@ -79,15 +81,14 @@ export default function Leaderboard() {
           暂无打卡数据 · 接入飞书考勤/工时表后显示
         </div>
       ) : (
-        <div className="space-y-1">
-          {list.map((p, i) => {
-            const s = RANK_STYLE[i]
+        <div className="space-y-1 max-h-[300px] overflow-y-auto leader-scroll pr-1">
+          {list.map(({ p, s }, i) => {
             const dur = splitDur(minutesOf(p))
             return (
               <div
                 key={p.userId}
                 className={`flex items-center gap-2 rounded-md border px-2 py-1 card-lift anim-enter ${s.card}`}
-                style={{ animationDelay: `${i * 80}ms` }}
+                style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
               >
                 {s.big && <Crown size={10} className="text-accent-bright shrink-0" />}
                 <span
