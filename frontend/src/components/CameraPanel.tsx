@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ScanFace, CheckCircle2 } from 'lucide-react'
 
 interface LatestRecog {
@@ -22,7 +22,19 @@ export default function CameraPanel() {
   const [status, setStatus] = useState<CamStatus | null>(null)
   const [showOk, setShowOk] = useState(false)
   const [okName, setOkName] = useState('')
+  const [fallback, setFallback] = useState(false)
+  const [frameTick, setFrameTick] = useState(0)
   const okTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 页面加载时生成一次性时间戳，避免浏览器缓存复用 MJPEG 响应
+  const streamSrc = useMemo(() => `/api/camera/stream?ts=${Date.now()}`, [])
+
+  // MJPEG 加载失败时回退到 JPEG 轮询（兜底，保证任何浏览器都有画面）
+  useEffect(() => {
+    if (!fallback) return
+    const id = setInterval(() => setFrameTick((t) => t + 1), 500)
+    return () => clearInterval(id)
+  }, [fallback])
 
   // 状态 + FPS + 打卡提示：1.5s 低频轮询（与视频流完全独立）
   useEffect(() => {
@@ -82,13 +94,14 @@ export default function CameraPanel() {
       </div>
       <div className="panel overflow-hidden p-0 flex-1 min-h-[150px]">
         <div className="relative h-full w-full bg-black/5">
-          {/* MJPEG 连续视频流：浏览器自动持续解析 */}
+          {/* MJPEG 连续视频流（失败自动回退 JPEG 轮询兜底） */}
           <img
-            src="/api/camera/stream"
+            src={fallback ? `/api/camera/frame?t=${frameTick}` : streamSrc}
             alt="相机画面"
             className="absolute inset-0 h-full w-full object-cover"
             onError={(e) => {
               ;(e.target as HTMLImageElement).style.opacity = '0.15'
+              setFallback(true)
             }}
             onLoad={(e) => {
               ;(e.target as HTMLImageElement).style.opacity = '1'

@@ -188,7 +188,9 @@ def api_camera_stream():
                 except Exception:
                     pass
 
-    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame",
+                    headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                             "Pragma": "no-cache"})
 
 
 @app.get("/api/camera/status")

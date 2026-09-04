@@ -98,6 +98,50 @@ class FPSCounter:
             return round(n / span, 1) if span > 0 else 0.0
 
 
+# ---------------- 中文标签渲染（cv2.putText 不支持中文，用 PIL） ----------------
+_FONT = None
+
+
+def _get_font(size=18):
+    global _FONT
+    if _FONT is None:
+        try:
+            from PIL import ImageFont
+            for f in [r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf",
+                      r"C:\Windows\Fonts\simsun.ttc"]:
+                if os.path.exists(f):
+                    _FONT = ImageFont.truetype(f, size)
+                    break
+            if _FONT is None:
+                _FONT = ImageFont.load_default()
+        except Exception:
+            _FONT = "fallback"
+    return _FONT if isinstance(_FONT, object) and _FONT != "fallback" else None
+
+
+def _draw_cn_labels(preview, labels):
+    """用 PIL 在 BGR numpy 帧上画中文姓名标签。labels: [(x, y, h, text, color_bgr)]。
+    无人脸时不调用，避免整帧转换开销。"""
+    try:
+        from PIL import Image, ImageDraw
+        font = _get_font()
+        if font is None:
+            return False
+        pil = Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB))
+        d = ImageDraw.Draw(pil)
+        for (x, y, h, text, color) in labels:
+            bbox = d.textbbox((0, 0), text, font=font)
+            tw = bbox[2] - bbox[0]; th = bbox[3] - bbox[1]
+            ty = y - th - 8 if y - th - 8 > 0 else y + h + 4
+            fill = (int(color[2]), int(color[1]), int(color[0]))
+            d.rectangle([x, ty, x + tw + 8, ty + th + 4], fill=fill)
+            d.text((x + 4, ty), text, font=font, fill=(255, 255, 255))
+        preview[:] = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+        return True
+    except Exception:
+        return False
+
+
 # ---------------- 内部流状态 + HTTP 服务（跨 Session 无权限问题，Flask 代理） ----------------
 _STATE_LOCK = threading.Lock()
 _STATE = {"seq": 0, "jpeg": b"", "ts": 0.0,
@@ -453,6 +497,7 @@ class CameraManager:
                 # 先旋转到显示方向（与 UI 一致，右旋 90°）
                 preview = cv2.rotate(preview, cv2.ROTATE_90_CLOCKWISE)
                 # 画人脸框（识别线程在旋转后帧检测，坐标与显示坐标系一致，直接 *scale）
+                label_items = []
                 for name, conf, box, recognized in self.get_boxes():
                     x, y, w, h = [int(v) for v in box]
                     x = int(x * scale); y = int(y * scale)
@@ -460,11 +505,10 @@ class CameraManager:
                     color = (30, 111, 240) if recognized else (30, 170, 250)  # BGR 蓝/黄
                     label = name if recognized else "陌生人"
                     cv2.rectangle(preview, (x, y), (x + w, y + h), color, 2)
-                    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                    ty = y - 4 if y - 4 > th + 4 else y + h + th + 4
-                    cv2.rectangle(preview, (x, ty - th - 4), (x + tw + 6, ty + 2), color, -1)
-                    cv2.putText(preview, label, (x + 3, ty - 2),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                    label_items.append((x, y, h, label, color))
+                # PIL 画中文姓名（cv2.putText 中文会乱码为问号）
+                if label_items:
+                    _draw_cn_labels(preview, label_items)
                 ok, jpeg = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALITY])
                 if not ok:
                     continue
