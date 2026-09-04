@@ -155,6 +155,21 @@ def api_checkin_sync():
         return jsonify({"status": "error", "message": str(e)}), 200
 
 
+@app.get("/api/attendance/sync")
+def api_attendance_sync():
+    """手动触发：把飞书考勤工时数据同步到电子表格（幂等）。"""
+    from services.feishu.sync_attendance import sync_attendance_to_sheets
+
+    if not store.client:
+        return jsonify({"status": "error", "message": "飞书未配置"}), 200
+    try:
+        r = sync_attendance_to_sheets(store.client, days=30)
+        return jsonify({"status": "ok", **r})
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning("attendance sync API error: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 200
+
+
 INTERNAL_CAM = "http://127.0.0.1:18080"  # camera_checkin 内部流服务（跨 Session 无权限问题）
 
 
@@ -326,6 +341,31 @@ def _checkin_sync_loop():
         time.sleep(300)
 
 
+def _attendance_sync_loop():
+    """后台定时：每天 22:30 把飞书考勤工时同步到电子表格（幂等）。"""
+    from services.feishu.sync_attendance import sync_attendance_to_sheets
+
+    if not store.client:
+        app.logger.info("attendance sync: 飞书未配置，定时同步停用")
+        return
+    synced_today = False
+    while True:
+        try:
+            now = datetime.now()
+            if now.hour >= 22 and now.minute >= 30 and not synced_today:
+                try:
+                    r = sync_attendance_to_sheets(store.client, days=30)
+                    app.logger.info("attendance sync scheduled: %s", r)
+                except Exception as e:  # noqa: BLE001
+                    app.logger.warning("attendance sync scheduled error: %s", e)
+                synced_today = True
+            if now.hour < 22:
+                synced_today = False
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(300)
+
+
 def main():
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
@@ -335,6 +375,12 @@ def main():
 
         threading.Thread(target=_checkin_sync_loop, daemon=True).start()
         app.logger.info("checkin 每日同步飞书定时任务已启动（每天 22:00）")
+    # 后台定时：飞书考勤工时每日同步到电子表格（幂等）
+    if os.environ.get("FEISHU_ATTENDANCE_SYNC_ENABLED", "1") == "1":
+        import threading
+
+        threading.Thread(target=_attendance_sync_loop, daemon=True).start()
+        app.logger.info("attendance 每日同步电子表格定时任务已启动（每天 22:30）")
     if "--dev" in sys.argv:
         app.logger.info("开发模式 Flask dev server: http://localhost:%s", port)
         app.run(host=host, port=port, debug=True, threaded=True)

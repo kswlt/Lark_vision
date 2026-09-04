@@ -60,6 +60,19 @@ class FeishuClient(object):
                     time_sleep(0.5 * (i + 1))
         raise last_err
 
+    def put(self, path, payload=None, retries=2):
+        url = BASE + path
+        last_err = None
+        for i in range(retries + 1):
+            try:
+                resp = requests.put(url, headers=self._headers(), json=payload or {}, timeout=15)
+                return self._handle(resp, url)
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                if i < retries:
+                    time_sleep(0.5 * (i + 1))
+        raise last_err
+
 
 def time_sleep(sec):
     import time
