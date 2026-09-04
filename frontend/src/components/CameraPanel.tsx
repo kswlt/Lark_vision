@@ -33,7 +33,7 @@ export default function CameraPanel() {
         </span>
       </div>
       <div className="panel overflow-hidden p-0">
-        <div className="relative aspect-video bg-black/5">
+        <div className="relative aspect-[4/5] bg-black/5">
           <img
             src={`/api/camera/frame?t=${tick}`}
             alt="相机画面"

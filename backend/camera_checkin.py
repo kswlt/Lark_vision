@@ -192,7 +192,7 @@ def main():
             if img is None:
                 time.sleep(DETECT_INTERVAL)
                 continue
-            # 保存实时画面帧（供前端相机小窗口轮询）
+            # 保存实时画面帧（供前端相机小窗口轮询）——画面向右旋转 90°（相机安装朝向）
             try:
                 hh, ww = img.shape[:2]
                 scale = 640.0 / max(ww, 1)
@@ -200,6 +200,7 @@ def main():
                     small = cv2.resize(img, (int(ww * scale), int(hh * scale)))
                 else:
                     small = img
+                small = cv2.rotate(small, cv2.ROTATE_90_CLOCKWISE)
                 cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile(
                     os.path.join(LIB, "frame_live.jpg")
                 )
