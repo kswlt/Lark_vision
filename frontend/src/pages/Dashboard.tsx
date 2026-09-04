@@ -77,23 +77,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-stretch">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-stretch">
         <div className="md:col-span-2">
           <Leaderboard />
         </div>
-        <div className="md:col-span-3 flex flex-col">
+        <div className="md:col-span-2 flex flex-col">
           <DutyRoster />
+        </div>
+        {/* 人脸识别摄像头：放在今日值日右侧 */}
+        <div className="md:col-span-2 flex flex-col">
+          <CameraPanel />
         </div>
       </div>
 
       <div className="anim-enter-slow" style={{ animationDelay: '140ms' }}>
         <div className="panel-title mb-2">组别 × 兵种矩阵</div>
         <MatrixTable matrix={dashboard?.matrix ?? []} />
-      </div>
-
-      {/* 相机画面：页面最底部小窗，不影响原布局 */}
-      <div className="mt-1">
-        <CameraPanel />
       </div>
 
       <TaskDrawer task={selected} onClose={() => setSelected(null)} />

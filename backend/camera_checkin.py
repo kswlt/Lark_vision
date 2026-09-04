@@ -33,9 +33,14 @@ LOG_DIR = os.path.join(BASE, "logs")
 
 FACE_SIZE = 112
 CONF_THRESHOLD = 70        # LBPH confidence 阈值（越小越像）
-MIN_DETECT_SCORE = 0.7
-DETECT_INTERVAL = 1.2      # 秒，取流间隔
+MIN_DETECT_SCORE = 0.5
+DETECT_INTERVAL = 0.5      # 秒，取流间隔（提升帧率）
 SAME_PERSON_COOLDOWN = 300 # 秒，同人重复识别冷却
+CAPTURE_COOLDOWN = 8       # 秒，同人捕获冷却（避免人脸照片海量）
+CAPTURE_DIR = os.path.join(LIB, "captures")  # 分类人脸照片：captures/<姓名>/
+
+# 人脸捕获冷却表：name -> last_ts
+_last_capture = {}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +51,31 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("face_checkin")
+
+
+def save_face_capture(img, box, name, now):
+    """把检测到的人脸裁剪保存到 captures/<姓名>/（陌生人 -> captures/陌生人/），带冷却。"""
+    global _last_capture
+    last = _last_capture.get(name, 0.0)
+    if now - last < CAPTURE_COOLDOWN:
+        return
+    try:
+        x, y, w, h = [int(v) for v in box]
+        pad = int(max(w, h) * 0.15)
+        x0 = max(0, x - pad); y0 = max(0, y - pad)
+        x1 = min(img.shape[1], x + w + pad); y1 = min(img.shape[0], y + h + pad)
+        face_img = img[y0:y1, x0:x1]
+        if face_img.size == 0:
+            return
+        folder = os.path.join(CAPTURE_DIR, str(name))
+        os.makedirs(folder, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        cv2.imencode(".jpg", face_img, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tofile(
+            os.path.join(folder, "%s.jpg" % ts)
+        )
+        _last_capture[name] = now
+    except Exception as e:  # noqa: BLE001
+        log.warning("save face capture failed: %s", e)
 
 
 def load_recognizer():
@@ -111,7 +141,7 @@ def grab_frame(ia):
 
 
 def detect_and_recognize(img, detector, rec, names, threshold=CONF_THRESHOLD):
-    """返回 [(name, confidence, bbox)]"""
+    """返回 [(name, confidence, bbox, recognized)]；未识别/低置信 -> ("陌生人", conf, box, False)"""
     results = []
     h, w = img.shape[:2]
     detector.setInputSize((w, h))
@@ -133,9 +163,13 @@ def detect_and_recognize(img, detector, rec, names, threshold=CONF_THRESHOLD):
             idx, conf = rec.predict(face)
         except Exception as e:
             log.warning("predict err: %s", e)
+            results.append(("陌生人", 999.0, (x, y, fw, fh), False))
             continue
-        name = names[idx] if 0 <= idx < len(names) else "未知"
-        results.append((name, round(float(conf), 1), (x, y, fw, fh)))
+        if 0 <= idx < len(names) and conf <= threshold:
+            name = names[idx]
+            results.append((name, round(float(conf), 1), (x, y, fw, fh), True))
+        else:
+            results.append(("陌生人", round(float(conf), 1), (x, y, fw, fh), False))
     return results
 
 
@@ -208,10 +242,11 @@ def main():
                 log.warning("save frame failed: %s", e)
             results = detect_and_recognize(img, detector, rec, names)
             now = time.time()
-            for name, conf, box in results:
-                if conf > CONF_THRESHOLD:
-                    log.debug("低置信 %s conf=%s", name, conf)
-                    continue
+            for name, conf, box, recognized in results:
+                # 分类捕获：名单内按姓名存文件夹，陌生人存"陌生人"文件夹
+                save_face_capture(img, box, name, now)
+                if not recognized:
+                    continue  # 陌生人/低置信不打卡
                 last = last_seen.get(name, 0)
                 if now - last < SAME_PERSON_COOLDOWN:
                     continue

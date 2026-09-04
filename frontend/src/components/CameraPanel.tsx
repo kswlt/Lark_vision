@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Video } from 'lucide-react'
+import { Video, ScanFace } from 'lucide-react'
 
 /** 相机实时画面小窗口：定时轮询 /api/camera/frame */
 export default function CameraPanel() {
@@ -7,7 +7,7 @@ export default function CameraPanel() {
   const [frameTime, setFrameTime] = useState<string | null>(null)
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1500)
+    const id = setInterval(() => setTick((t) => t + 1), 600)
     return () => clearInterval(id)
   }, [])
 
@@ -21,8 +21,8 @@ export default function CameraPanel() {
   return (
     <div className="anim-enter-slow w-full max-w-sm" style={{ animationDelay: '60ms' }}>
       <div className="panel-title mb-1.5 flex items-center gap-2">
-        <Video size={15} className="text-accent" />
-        相机画面
+        <ScanFace size={15} className="text-accent" />
+        人脸识别打卡
         <span className="ml-auto flex items-center gap-1.5 text-[11px]">
           <span
             className={`inline-block h-2 w-2 rounded-full ${
