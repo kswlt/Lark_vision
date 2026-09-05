@@ -1,9 +1,19 @@
-import { useState } from 'react'
-import { Crown, Timer } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Crown, Heart, Timer } from 'lucide-react'
 import { useData } from '../store'
 import Avatar from './Avatar'
 import { GROUP_DOT } from './Badge'
 import type { Group } from '../types'
+
+const LIKES_KEY = 'rm_leaderboard_likes_v1'
+
+function loadLikes(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(LIKES_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
 
 interface WorktimeEntry {
   userId: string
@@ -46,6 +56,19 @@ const RANK_STYLE = [
 export default function Leaderboard() {
   const { worktimeWeek, worktimeMonth } = useData()
   const [range, setRange] = useState<'week' | 'month'>('week')
+  const [likes, setLikes] = useState<Record<string, number>>(loadLikes)
+  const [popId, setPopId] = useState<string | null>(null)
+
+  useEffect(() => {
+    try { localStorage.setItem(LIKES_KEY, JSON.stringify(likes)) } catch { /* ignore */ }
+  }, [likes])
+
+  const handleLike = (userId: string) => {
+    setLikes((prev) => ({ ...prev, [userId]: (prev[userId] || 0) + 1 }))
+    setPopId(userId)
+    setTimeout(() => setPopId((id) => (id === userId ? null : id)), 500)
+  }
+
   const full = range === 'week' ? worktimeWeek : worktimeMonth
   // 前 3 用高亮样式，第 4 名起复用普通样式
   const list = full.map((p, i) => ({ p, s: RANK_STYLE[Math.min(i, 2)] }))
@@ -81,33 +104,54 @@ export default function Leaderboard() {
           暂无打卡数据 · 接入飞书考勤/工时表后显示
         </div>
       ) : (
-        <div className="space-y-1 max-h-[200px] overflow-y-auto leader-scroll pr-1">
+        <div className="space-y-1.5 max-h-[260px] overflow-y-auto leader-scroll pr-1">
           {list.map(({ p, s }, i) => {
             const dur = splitDur(minutesOf(p))
             return (
               <div
                 key={p.userId}
-                className={`flex items-center gap-2 rounded-md border px-2 py-1.5 card-lift anim-enter ${s.card}`}
+                className={`flex items-center gap-2.5 rounded-md border px-2.5 py-2 card-lift anim-enter ${s.card}`}
                 style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
               >
-                {s.big && <Crown size={10} className="text-accent-bright shrink-0" />}
+                {s.big && <Crown size={12} className="text-accent-bright shrink-0" />}
                 <span
-                  className={`num-mono text-[10px] font-bold px-1 py-0.5 rounded shrink-0 w-5 text-center ${s.chip}`}
+                  className={`num-mono text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0 w-6 text-center ${s.chip}`}
                 >
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <Avatar name={p.userName} url={p.avatarUrl} size={20} />
-                <span className="text-[12px] font-semibold text-gray-100 truncate w-16 shrink-0">
+                <Avatar name={p.userName} url={p.avatarUrl} size={26} />
+                <span className="text-[14px] font-semibold text-gray-100 truncate w-20 shrink-0">
                   {p.userName || '未命名'}
                 </span>
-                <div className="flex items-baseline gap-0.5 ml-auto shrink-0">
-                  <span className={`num-mono font-bold text-[14px] leading-none ${s.num}`}>
-                    {dur.h}
-                  </span>
-                  <span className={`num-mono text-[10px] leading-none ${s.num}`}>h</span>
-                  <span className="num-mono text-[11px] text-gray-300 leading-none">
-                    {dur.m}m
-                  </span>
+                <div className="flex items-center gap-2 ml-auto shrink-0">
+                  <div className="flex items-baseline gap-0.5">
+                    <span className={`num-mono font-bold text-[18px] leading-none ${s.num}`}>
+                      {dur.h}
+                    </span>
+                    <span className={`num-mono text-[11px] leading-none ${s.num}`}>h</span>
+                    <span className="num-mono text-[13px] text-gray-300 leading-none">
+                      {dur.m}m
+                    </span>
+                  </div>
+                  {/* 点赞按钮 */}
+                  <button
+                    onClick={() => handleLike(p.userId)}
+                    className={`flex items-center gap-0.5 px-1.5 py-1 rounded transition-all cursor-pointer text-red-500 hover:bg-red-500/10 active:scale-90 ${
+                      popId === p.userId ? 'scale-125' : 'scale-100'
+                    }`}
+                    title="点赞支持"
+                  >
+                    <Heart
+                      size={14}
+                      fill="currentColor"
+                      strokeWidth={2}
+                    />
+                    {(likes[p.userId] || 0) > 0 && (
+                      <span className="num-mono text-[11px] font-bold leading-none">
+                        {likes[p.userId]}
+                      </span>
+                    )}
+                  </button>
                 </div>
               </div>
             )

@@ -38,10 +38,10 @@ import cv2
 # ---------------- 配置（集中管理） ----------------
 CAMERA_TARGET_FPS = 30        # 相机目标帧率（硬件支持时尝试设置）
 PREVIEW_FPS = 30              # 预览编码目标帧率
-PREVIEW_WIDTH = 416           # 预览宽度(双核极限平衡画质与流畅)
-PREVIEW_JPEG_QUALITY = 64     # 预览 JPEG 质量
+PREVIEW_WIDTH = 640           # 预览宽度(提高画质，人脸更清晰)
+PREVIEW_JPEG_QUALITY = 80     # 预览 JPEG 质量(提高画质)
 RECOGNITION_FPS = 2           # 识别目标帧率(SFace比LBPH快，2fps足够打卡且给preview让算力)
-DETECTION_MAX_WIDTH = 416     # YuNet 检测最大宽度（SFace依赖5点landmark，320太低影响小脸对齐质量）
+DETECTION_MAX_WIDTH = 640     # YuNet 检测最大宽度（提高到640，SFace依赖5点landmark，小脸对齐更准）
 
 FACE_SIZE = 112
 CONF_THRESHOLD = 100          # LBPH confidence（fallback 用）
