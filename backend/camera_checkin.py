@@ -3,8 +3,10 @@
 希沃端人脸打卡服务（常驻）——入口。
 架构已重构为多线程（见 camera_manager.py）：
     Camera Capture Thread  →  latest_frame(内存)
-        ├─ Preview Encoder Thread → mmap → Flask MJPEG → 浏览器
-        └─ Recognition Thread     → YuNet → LBPH → 打卡 / 捕获
+        ├─ Preview Encoder Thread → 内部HTTP → Flask MJPEG → 浏览器
+        └─ Recognition Thread     → YuNet → SFace深度特征 → Gallery匹配 → 多帧确认 → 打卡 / 捕获
+主识别算法：SFace 深度人脸特征（128维向量 + Gallery向量库 + 多帧确认 + 身份缓存）
+Fallback：LBPH（SFace不可用时自动回退）
 用法:
     常驻运行: python camera_checkin.py
     单帧测试: python camera_checkin.py --once
@@ -22,7 +24,7 @@ from camera_manager import (
     CameraManager,
     LIB,
     load_recognizer,
-    detect_and_recognize,
+    detect_and_recognize_lbph,
     log,
 )
 
@@ -44,7 +46,7 @@ def run_once():
             print("NO_FRAME")
             return 1
         cv2.imencode(".jpg", img)[1].tofile(os.path.join(LIB, "frame_live.jpg"))
-        results = detect_and_recognize(img, detector, rec, names)
+        results = detect_and_recognize_lbph(img, detector, rec, names)
         if results:
             for name, conf, box, rec_ok in results:
                 print("FACE %s conf=%s box=%s" % (name, conf, box))

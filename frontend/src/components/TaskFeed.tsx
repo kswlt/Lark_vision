@@ -1,8 +1,7 @@
 import { useMemo } from 'react'
-import { Flag, Radio } from 'lucide-react'
+import { Flag, Radio, ClockAlert } from 'lucide-react'
 import { useData } from '../store'
-import { GroupBadge, RobotBadge } from './Badge'
-import { fmtDate } from '../lib/format'
+import { fmtDate, daysUntil } from '../lib/format'
 import type { Task } from '../types'
 
 function statusOf(t: Task): { label: string; cls: string } | null {
@@ -44,23 +43,22 @@ export default function TaskFeed({
         <div className="ticker-h-track">
           {doubled.map((t, i) => {
             const st = statusOf(t)
+            const daysLeft = t.dueDate ? daysUntil(t.dueDate) : null
             return (
               <button
                 key={t.id + '-' + i}
                 onClick={() => onOpen(t)}
-                className="w-[300px] shrink-0 text-left flex flex-col gap-1.5 rounded-md border border-base-600 bg-base-850 px-3 py-2.5 hover:border-accent-dim/70 hover:bg-base-800 clickable anim-enter"
+                className="w-[340px] shrink-0 text-left flex flex-col gap-1.5 rounded-md border border-base-600 bg-base-850 px-3 py-2.5 hover:border-accent-dim/70 hover:bg-base-800 clickable anim-enter"
               >
                 <div className="flex items-center gap-2">
                   <span className="num-mono text-[11px] text-accent-bright font-semibold shrink-0">
                     {t.id}
                   </span>
-                  <GroupBadge group={t.group} />
-                  <RobotBadge robot={t.robot} />
                   {st && (
                     <span className={`ml-auto text-[10px] shrink-0 ${st.cls}`}>{st.label}</span>
                   )}
                 </div>
-                <span className="text-[14px] text-gray-200 leading-snug line-clamp-2 font-medium">
+                <span className="text-[19px] text-gray-100 leading-snug line-clamp-2 font-bold">
                   {t.title}
                 </span>
                 {t.latestUpdate && (
@@ -75,6 +73,12 @@ export default function TaskFeed({
                     <Flag size={12} />
                     {t.dueDate ? fmtDate(t.dueDate) : '—'}
                   </span>
+                  {daysLeft !== null && (
+                    <span className={`ml-auto flex items-center gap-0.5 shrink-0 text-[14px] font-black ${daysLeft < 0 ? 'text-red-500' : daysLeft <= 3 ? 'text-red-400' : 'text-red-300'}`}>
+                      <ClockAlert size={14} />
+                      {daysLeft < 0 ? `逾期${-daysLeft}天` : `还剩${daysLeft}天`}
+                    </span>
+                  )}
                 </div>
               </button>
             )

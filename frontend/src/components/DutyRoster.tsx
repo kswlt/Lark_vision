@@ -9,7 +9,7 @@ export default function DutyRoster() {
   const today = duty.find((d) => d.isToday) ?? duty[0]
 
   return (
-    <div className="panel hud-frame flex items-center gap-3 px-4 py-2 h-full anim-enter">
+    <div className="panel hud-frame flex items-center gap-3 px-4 py-2 anim-enter">
       <div className="flex items-center gap-1.5 shrink-0">
         <CalendarDays size={14} className="text-accent-bright" />
         <span className="panel-title">今日值日</span>

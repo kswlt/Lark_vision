@@ -92,7 +92,7 @@ export default function CameraPanel() {
           </span>
         </span>
       </div>
-      <div className="panel overflow-hidden p-0 flex-1 min-h-[150px]">
+      <div className="panel overflow-hidden p-0 flex-1 min-h-[140px]">
         <div className="relative h-full w-full bg-black/5">
           {/* MJPEG 连续视频流（失败自动回退 JPEG 轮询兜底） */}
           <img

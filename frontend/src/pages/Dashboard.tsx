@@ -107,14 +107,11 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-stretch">
-        <div className="md:col-span-2">
+        <div className="md:col-span-4">
           <Leaderboard />
         </div>
-        <div className="md:col-span-2 flex flex-col">
+        <div className="md:col-span-2 flex flex-col gap-4">
           <DutyRoster />
-        </div>
-        {/* 人脸识别摄像头：放在今日值日右侧 */}
-        <div className="md:col-span-2 flex flex-col">
           <CameraPanel />
         </div>
       </div>

@@ -9,8 +9,8 @@ CameraManager：华睿大华工业相机多线程管理（采集 / 预览 / 识�
          │                                                       │
          ├──────────────► [Preview Encoder Thread] ── latest_jpeg ──► mmap ──► Flask MJPEG ──► Browser
          │                   20FPS / 640px / 旋转90°                  (命名共享内存, 不写盘)
-         └──────────────► [Recognition Thread] ── YuNet(640) ──► LBPH ──► 打卡/捕获 ──► last_recognition.json
-                            5FPS / 自适应 sleep
+         └──────────────► [Recognition Thread] ── YuNet(640) ──► SFace深度特征 ──► Gallery匹配 ──► 多帧确认 ──► 打卡/捕获
+                            1-3FPS / 身份缓存 / 低频识别
 依赖：
     harvesters / genicam / cv2 / numpy（希沃 Python3.8 已装）
 用法：
@@ -21,6 +21,8 @@ import os
 import sys
 import time
 import json
+import re
+import glob
 import logging
 import threading
 import collections
@@ -35,28 +37,39 @@ import cv2
 
 # ---------------- 配置（集中管理） ----------------
 CAMERA_TARGET_FPS = 30        # 相机目标帧率（硬件支持时尝试设置）
-PREVIEW_FPS = 30              # 预览编码目标帧率(实测预览链路仅8.5ms/帧，YuNet释放CPU后可到30)
+PREVIEW_FPS = 30              # 预览编码目标帧率
 PREVIEW_WIDTH = 416           # 预览宽度(双核极限平衡画质与流畅)
 PREVIEW_JPEG_QUALITY = 64     # 预览 JPEG 质量
-RECOGNITION_FPS = 3           # 识别目标帧率(双核CPU满载,3fps保打卡且给preview让算力)
-DETECTION_MAX_WIDTH = 320     # YuNet 检测最大宽度（i3双核CPU满载，320宽~23ms/帧保识别5fps并给预览腾算力）
+RECOGNITION_FPS = 2           # 识别目标帧率(SFace比LBPH快，2fps足够打卡且给preview让算力)
+DETECTION_MAX_WIDTH = 416     # YuNet 检测最大宽度（SFace依赖5点landmark，320太低影响小脸对齐质量）
 
 FACE_SIZE = 112
-CONF_THRESHOLD = 100          # LBPH confidence（越小越像；实测现场同人100-140、单样本区分度差，140会误认；降到100宁可拒也不误认，待补多张照片重训后提高准确率）
+CONF_THRESHOLD = 100          # LBPH confidence（fallback 用）
 MIN_DETECT_SCORE = 0.5
 SAME_PERSON_COOLDOWN = 300    # 秒，同人重复打卡冷却
 CAPTURE_COOLDOWN = 8          # 秒，同人捕获冷却
-PREVIEW_JPEG_MMAP = ""  # 已弃用（原 mmap 方案，Session 隔离/权限问题，改内部 HTTP）
-INTERNAL_HTTP_PORT = 18080  # 内部流服务端口（Flask 代理 /api/camera/stream）
-MMAP_SIZE = 1 * 1024 * 1024   # 保留常量（兼容引用）
+PREVIEW_JPEG_MMAP = ""  # 已弃用
+INTERNAL_HTTP_PORT = 18080  # 内部流服务端口
+MMAP_SIZE = 1 * 1024 * 1024   # 保留常量
 LAST_RECOG_INTERVAL = 1.5     # 秒，识别结果写入冷却
+
+# SFace 深度人脸识别配置
+SFACE_COSINE_THRESHOLD = 0.45   # SFace cosine 相似度阈值（现场统计：0.45时异人误识别率0.49%）
+SFACE_L2_THRESHOLD = 1.128      # SFace L2 距离阈值（官方推荐，越小越像）
+SFACE_MATCH_MARGIN = 0.05       # best-second 最小间隔，防止"勉强最像"误识别
+MULTI_FRAME_CONFIRM = 3         # 多帧确认帧数（连续N帧识别同一人才确认）
+IDENTITY_CACHE_TTL = 15         # 身份缓存 TTL（秒），同一人脸特征缓存结果避免重复计算
+GALLERY_REBUILD_INTERVAL = 3600  # Gallery 重建间隔（秒），检测到新照片自动重建
 
 BASE = r"C:\RoboMasterDashboard"
 LIB = os.path.join(BASE, "face_library")
 CTI = r"C:\Program Files\HuarayTech\MV Viewer\Runtime\x64\MVProducerU3V.cti"
 YUNET = os.path.join(LIB, "models", "face_detection_yunet.onnx")
+SFACE_MODEL = os.path.join(LIB, "models", "face_recognition_sface_2021dec.onnx")
 MODEL = os.path.join(LIB, "face_model.yml")
 NAMES = os.path.join(LIB, "face_names.txt")
+PHOTO_DIR = os.path.join(LIB, "photos")
+GALLERY_FILE = os.path.join(LIB, "face_gallery.npz")
 DATA_DIR = os.path.join(BASE, "data")
 LOG_DIR = os.path.join(BASE, "logs")
 LAST_RECOG = os.path.join(LIB, "last_recognition.json")
@@ -120,8 +133,7 @@ def _get_font(size=18):
 
 
 def _draw_cn_labels(preview, labels):
-    """用 PIL 在 BGR numpy 帧上画中文姓名标签。labels: [(x, y, h, text, color_bgr)]。
-    只对每个标签的小 ROI 做 PIL 转换，避免整帧 BGR<->RGB 双转换拖慢预览。"""
+    """用 PIL 在 BGR numpy 帧上画中文姓名标签。labels: [(x, y, h, text, color_bgr)]。"""
     try:
         from PIL import Image, ImageDraw
         font = _get_font()
@@ -153,24 +165,23 @@ def _draw_cn_labels(preview, labels):
         return False
 
 
-# ---------------- 线程优先级辅助（Win7 双核 CPU 满载：给 preview 更高调度优先级，识别降为后台） ----------------
+# ---------------- 线程优先级辅助 ----------------
 import ctypes as _ct
 def _set_thread_prio(prio):
     try:
         _ct.windll.kernel32.SetThreadPriority(_ct.windll.kernel32.GetCurrentThread(), prio)
     except Exception:
         pass
-PRIO_ABOVE = 1    # THREAD_PRIORITY_ABOVE_NORMAL
+PRIO_ABOVE = 1
 PRIO_NORMAL = 0
-PRIO_BELOW = -1   # THREAD_PRIORITY_BELOW_NORMAL
+PRIO_BELOW = -1
 def _set_thread_affinity(mask):
-    """绑定线程到指定逻辑 CPU（0x1=CPU0 0x4=CPU2）。双核满载时隔离预览核，防被饿死。"""
     try:
         _ct.windll.kernel32.SetThreadAffinityMask(_ct.windll.kernel32.GetCurrentThread(), mask)
     except Exception:
         pass
 
-# ---------------- 内部流状态 + HTTP 服务（跨 Session 无权限问题，Flask 代理） ----------------
+# ---------------- 内部流状态 + HTTP 服务 ----------------
 _STATE_LOCK = threading.Lock()
 _STATE = {"seq": 0, "jpeg": b"", "ts": 0.0,
           "capture_fps": 0.0, "preview_fps": 0.0, "recognition_fps": 0.0,
@@ -208,7 +219,7 @@ class _CamHandler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(b"--frame\r\n"
                                      b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n")
                     self.wfile.flush()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     return
             else:
                 time.sleep(0.02)
@@ -243,12 +254,11 @@ class _CamHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(jpeg)
 
-    def log_message(self, *a):  # 静默访问日志
+    def log_message(self, *a):
         pass
 
 
 def _publish(jpeg, ts, c_fps, p_fps, r_fps, connected):
-    """预览线程发布最新帧 + 指标到内部状态。"""
     with _STATE_LOCK:
         _STATE["seq"] += 1
         _STATE["jpeg"] = jpeg
@@ -263,7 +273,6 @@ _internal_http = None
 
 
 def _start_internal_http():
-    """启动内部 HTTP 流服务（127.0.0.1:18080），daemon 线程，失败不致命。"""
     global _internal_http
     try:
         httpd = socketserver.ThreadingTCPServer(("127.0.0.1", INTERNAL_HTTP_PORT), _CamHandler)
@@ -272,24 +281,275 @@ def _start_internal_http():
         t.start()
         _internal_http = httpd
         log.info("内部流服务已启动: http://127.0.0.1:%d", INTERNAL_HTTP_PORT)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning("内部流服务启动失败(不影响采集/识别): %s", e)
 
 
-# ---------------- 人脸库 / 打卡 / 捕获（识别线程使用） ----------------
+# ---------------- SFace 深度人脸 Gallery 向量库 ----------------
+class FaceGallery:
+    """SFace 深度特征向量库：每人一个或多个 128 维特征向量。
+    支持从 photos/ 目录构建，缓存到 .npz 文件，自动检测新照片重建。"""
+
+    def __init__(self):
+        self.names = []           # 人名列表
+        self.vectors = []         # 对应特征向量列表（每人可能多个）
+        self.name_to_idx = {}     # 人名 -> vectors 中的起始索引
+        self._lock = threading.Lock()
+        self._last_mtime = 0.0
+        self._last_rebuild = 0.0
+
+    def _photo_mtime(self):
+        """获取 photos 目录最新修改时间（用于检测新照片）。"""
+        try:
+            if not os.path.isdir(PHOTO_DIR):
+                return 0.0
+            latest = 0.0
+            for f in glob.glob(os.path.join(PHOTO_DIR, "*.jpg")) + glob.glob(os.path.join(PHOTO_DIR, "*.png")):
+                try:
+                    m = os.path.getmtime(f)
+                    if m > latest:
+                        latest = m
+                except Exception:
+                    pass
+            return latest
+        except Exception:
+            return 0.0
+
+    def _person_of(self, filename):
+        """从文件名提取人名：姓名.jpg / 姓名_1.jpg / 姓名-2.jpg -> 姓名。"""
+        base = os.path.splitext(os.path.basename(filename))[0]
+        m = re.match(r'^(.*?)[_\-\s]?(\d+)$', base)
+        return m.group(1) if m else base
+
+    def build(self, sface, detector, force=False):
+        """从 photos/ 目录构建 Gallery。force=True 强制重建。"""
+        with self._lock:
+            now = time.time()
+            mtime = self._photo_mtime()
+            # 检查是否需要重建
+            if not force and self.vectors and (now - self._last_rebuild < GALLERY_REBUILD_INTERVAL) and mtime <= self._last_mtime:
+                return len(self.names)
+            # 尝试从缓存加载
+            if not force and os.path.exists(GALLERY_FILE) and os.path.getmtime(GALLERY_FILE) >= mtime:
+                try:
+                    data = np.load(GALLERY_FILE, allow_pickle=True)
+                    self.names = list(data["names"])
+                    self.vectors = [v for v in data["vectors"]]
+                    self.name_to_idx = {}
+                    for i, n in enumerate(self.names):
+                        if n not in self.name_to_idx:
+                            self.name_to_idx[n] = i
+                    self._last_mtime = mtime
+                    self._last_rebuild = now
+                    log.info("Gallery 从缓存加载: %d 人, %d 特征", len(set(self.names)), len(self.vectors))
+                    return len(set(self.names))
+                except Exception as e:
+                    log.warning("Gallery 缓存加载失败，重新构建: %s", e)
+
+            # 从 photos 目录构建
+            files = sorted(glob.glob(os.path.join(PHOTO_DIR, "*.jpg")) +
+                           glob.glob(os.path.join(PHOTO_DIR, "*.png")))
+            if not files:
+                log.warning("photos 目录无照片，Gallery 为空")
+                return 0
+
+            name_list = []
+            for f in files:
+                p = self._person_of(f)
+                if p not in name_list:
+                    name_list.append(p)
+
+            vectors = []
+            names = []
+            no_face = []
+            for f in files:
+                name = self._person_of(f)
+                try:
+                    img = cv2.imdecode(np.fromfile(f, dtype=np.uint8), cv2.IMREAD_COLOR)
+                except Exception:
+                    continue
+                if img is None:
+                    continue
+                h, w = img.shape[:2]
+                if max(h, w) > 1400:
+                    s = 1400.0 / max(h, w)
+                    img = cv2.resize(img, (int(w * s), int(h * s)))
+                detector.setInputSize((img.shape[1], img.shape[0]))
+                ret, faces = detector.detect(img)
+                if faces is None or len(faces) == 0:
+                    no_face.append(os.path.basename(f))
+                    continue
+                # 取最大的脸
+                face_raw = max(faces, key=lambda r: r[2] * r[3])
+                try:
+                    aligned = sface.alignCrop(img, face_raw)
+                    feat = sface.feature(aligned)
+                    vectors.append(feat.flatten())
+                    names.append(name)
+                except Exception as e:
+                    log.warning("提取特征失败 %s: %s", os.path.basename(f), e)
+                    continue
+
+            self.names = names
+            self.vectors = vectors
+            self.name_to_idx = {}
+            for i, n in enumerate(names):
+                if n not in self.name_to_idx:
+                    self.name_to_idx[n] = i
+            self._last_mtime = mtime
+            self._last_rebuild = now
+
+            # 保存缓存
+            try:
+                np.savez(GALLERY_FILE, names=np.array(names, dtype=object), vectors=np.array(vectors, dtype=object))
+            except Exception as e:
+                log.warning("Gallery 缓存保存失败: %s", e)
+
+            if no_face:
+                log.warning("以下照片未检测到人脸(已跳过): %s", ", ".join(no_face[:10]))
+            log.info("Gallery 构建完成: %d 人, %d 特征向量", len(set(names)), len(vectors))
+            return len(set(names))
+
+    def match(self, feat, sface):
+        """匹配特征向量，返回 (best_name, best_score, recognized, top5_list)。
+        使用 cosine 相似度，必须同时满足：
+          1. best_score >= SFACE_COSINE_THRESHOLD
+          2. best_score - second_score >= SFACE_MATCH_MARGIN
+        否则返回 recognized=False（宁可拒识，不要把A认成B）。
+        top5_list = [(name, score), ...] 按 score 降序。"""
+        with self._lock:
+            if not self.vectors:
+                return None, 0.0, False, []
+            # 对每个人取最大相似度
+            person_scores = {}
+            for i, v in enumerate(self.vectors):
+                try:
+                    score = float(sface.match(feat, v.reshape(1, -1), cv2.FaceRecognizerSF_FR_COSINE))
+                except Exception:
+                    continue
+                name = self.names[i]
+                if name not in person_scores or score > person_scores[name]:
+                    person_scores[name] = score
+            if not person_scores:
+                return None, 0.0, False, []
+            # Top-5 排序
+            sorted_persons = sorted(person_scores.items(), key=lambda x: x[1], reverse=True)
+            top5 = [(n, round(s, 3)) for n, s in sorted_persons[:5]]
+            best_name, best_score = sorted_persons[0]
+            second_score = sorted_persons[1][1] if len(sorted_persons) > 1 else 0.0
+            margin = best_score - second_score
+            # 双重条件：阈值 + margin
+            recognized = (best_name is not None
+                          and best_score >= SFACE_COSINE_THRESHOLD
+                          and margin >= SFACE_MATCH_MARGIN)
+            return best_name, round(best_score, 3), recognized, top5
+
+
+# ---------------- 多帧确认器 ----------------
+class MultiFrameConfirmer:
+    """多帧确认：同一个人脸位置连续 N 帧识别为同一人才确认身份。
+    用 bbox 中心位置作为临时 face_id。"""
+
+    def __init__(self, n=MULTI_FRAME_CONFIRM):
+        self.n = n
+        self.history = {}  # {face_id: [name, name, ...]}
+        self.confirmed = {}  # {face_id: (name, score)}
+        self._last_clean = 0.0
+
+    def _clean(self):
+        """清理超过 5 秒未更新的 face_id。"""
+        now = time.time()
+        if now - self._last_clean < 2.0:
+            return
+        self._last_clean = now
+        expired = [fid for fid, (_, ts) in self.confirmed.items() if now - ts > 5.0]
+        for fid in expired:
+            self.confirmed.pop(fid, None)
+            self.history.pop(fid, None)
+
+    def confirm(self, face_id, name, score):
+        """添加一帧识别结果，返回 (confirmed_name, confirmed_score, is_new_confirm)。
+        如果未确认，返回 (None, 0, False)。"""
+        self._clean()
+        if face_id not in self.history:
+            self.history[face_id] = []
+        self.history[face_id].append(name)
+        if len(self.history[face_id]) > self.n:
+            self.history[face_id].pop(0)
+        # 检查最近 N 帧是否全部为同一人
+        recent = self.history[face_id][-self.n:]
+        if len(recent) >= self.n and all(n == recent[0] for n in recent) and recent[0] is not None:
+            confirmed_name = recent[0]
+            # 检查是否是新确认
+            is_new = face_id not in self.confirmed or self.confirmed[face_id][0] != confirmed_name
+            self.confirmed[face_id] = (confirmed_name, time.time())
+            return confirmed_name, score, is_new
+        return None, 0.0, False
+
+
+# ---------------- 身份缓存（基于人脸位置） ----------------
+class IdentityCache:
+    """身份缓存：同一位置的人脸在 TTL 内直接返回缓存结果，避免重复 SFace 计算。
+    用 bbox 中心位置和大小作为 key。"""
+
+    def __init__(self, ttl=IDENTITY_CACHE_TTL):
+        self.ttl = ttl
+        self.cache = {}  # {key: (name, score, recognized, timestamp)}
+
+    def _make_key(self, box):
+        x, y, w, h = [int(v) for v in box[:4]]
+        cx, cy = x + w // 2, y + h // 2
+        # 位置量化到 20px 网格，大小量化到 10px
+        return (cx // 20, cy // 20, w // 10, h // 10)
+
+    def get(self, box):
+        key = self._make_key(box)
+        if key in self.cache:
+            name, score, recognized, ts = self.cache[key]
+            if time.time() - ts < self.ttl:
+                return name, score, recognized
+            else:
+                del self.cache[key]
+        return None
+
+    def set(self, box, name, score, recognized):
+        key = self._make_key(box)
+        self.cache[key] = (name, score, recognized, time.time())
+        # 清理过期缓存
+        now = time.time()
+        expired = [k for k, (_, _, _, ts) in self.cache.items() if now - ts > self.ttl * 2]
+        for k in expired:
+            del self.cache[k]
+
+
+# ---------------- 人脸库 / 打卡 / 捕获 ----------------
 def load_recognizer():
+    """加载 LBPH 识别器（fallback）。"""
     try:
         if not os.path.exists(MODEL) or not os.path.exists(NAMES):
-            log.warning("人脸模型不存在，请先运行 train_face.py")
             return None, []
         rec = cv2.face.LBPHFaceRecognizer_create()
         rec.read(MODEL)
         with open(NAMES, "r", encoding="utf-8") as f:
             names = [x.strip() for x in f.read().splitlines() if x.strip()]
         return rec, names
-    except Exception as e:  # noqa: BLE001
-        log.error("load recognizer failed: %s", e)
+    except Exception as e:
+        log.error("load LBPH recognizer failed: %s", e)
         return None, []
+
+
+def load_sface():
+    """加载 SFace 深度人脸识别器。失败返回 None。"""
+    try:
+        if not os.path.exists(SFACE_MODEL):
+            log.warning("SFace 模型不存在: %s", SFACE_MODEL)
+            return None
+        sface = cv2.FaceRecognizerSF_create(SFACE_MODEL, "")
+        log.info("SFace 深度人脸识别器加载成功")
+        return sface
+    except Exception as e:
+        log.error("SFace 加载失败(将回退 LBPH): %s", e)
+        return None
 
 
 def read_checkin():
@@ -309,13 +569,93 @@ def write_checkin(names, path):
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"date": datetime.date.today().strftime("%Y-%m-%d"), "names": sorted(names)},
                       f, ensure_ascii=False, indent=2)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.error("write checkin failed: %s", e)
 
 
-def detect_and_recognize(img, detector, rec, names, threshold=CONF_THRESHOLD):
-    """检测+识别。返回 [(name, conf, box_orig, recognized)]，box 为原始帧坐标。
-    YuNet 在缩放图上检测，bbox 映射回原始帧。"""
+def detect_faces(img, detector):
+    """仅检测人脸，返回 YuNet 原始输出列表（含关键点，供 SFace alignCrop 使用）。"""
+    h, w = img.shape[:2]
+    scale = min(1.0, float(DETECTION_MAX_WIDTH) / float(max(w, 1)))
+    dw = max(1, int(w * scale)); dh = max(1, int(h * scale))
+    if scale < 1.0:
+        detect_img = cv2.resize(img, (dw, dh))
+    else:
+        detect_img = img
+    detector.setInputSize((dw, dh))
+    ret, faces = detector.detect(detect_img)
+    if faces is None:
+        return [], 1.0
+    # 映射回原始帧坐标
+    inv = 1.0 / scale
+    result = []
+    for f in faces:
+        if f[14] < MIN_DETECT_SCORE:
+            continue
+        f2 = f.copy()
+        f2[0] *= inv; f2[1] *= inv; f2[2] *= inv; f2[3] *= inv
+        # 关键点也映射
+        for i in range(4, 14):
+            f2[i] *= inv
+        result.append(f2)
+    return result, inv
+
+
+def detect_and_recognize_sface(img, detector, sface, gallery, id_cache, confirmer):
+    """SFace 深度识别主流程：检测 -> 对齐 -> 特征 -> Gallery匹配 -> 身份缓存 -> 多帧确认。
+    返回 [(name, score, box_orig, recognized)]，box 为 (x, y, w, h)。"""
+    results = []
+    faces, _ = detect_faces(img, detector)
+    if not faces:
+        return results
+    for f in faces:
+        x, y, w, h = [int(v) for v in f[:4]]
+        box = (x, y, w, h)
+        # 1. 身份缓存命中
+        cached = id_cache.get(box)
+        if cached is not None:
+            name, score, recognized = cached
+            results.append((name if recognized else "不在数据库中", score, box, recognized))
+            continue
+        # 2. SFace 对齐 + 特征提取
+        try:
+            aligned = sface.alignCrop(img, f)
+            feat = sface.feature(aligned)
+        except Exception as e:
+            log.warning("SFace feature failed: %s", e)
+            results.append(("不在数据库中", 0.0, box, False))
+            continue
+        # 3. Gallery 匹配（双重条件：threshold + margin）
+        name, score, recognized, top5 = gallery.match(feat, sface)
+        # 4. 多帧确认（仅对识别为成员的人脸）
+        if recognized and name:
+            face_id = (x // 30, y // 30, w // 20, h // 20)
+            confirmed_name, conf_score, is_new = confirmer.confirm(face_id, name, score)
+            if confirmed_name:
+                name = confirmed_name
+                score = conf_score
+                recognized = True
+            else:
+                # 未确认，暂不标记为成员（避免误识别打卡）
+                recognized = False
+                name = "识别中..."
+        # 5. 写入身份缓存
+        id_cache.set(box, name if recognized else None, score, recognized)
+        # 6. Debug: 打印 Top-5（仅对识别为成员或接近阈值的人脸）
+        if recognized or (top5 and top5[0][1] >= 0.35):
+            top5_str = ", ".join("%s:%.3f" % (n, s) for n, s in top5[:3])
+            margin_val = top5[0][1] - top5[1][1] if len(top5) > 1 else 0
+            log.info("识别 %s | bbox=%dx%d | best=%s(%.3f) margin=%.3f | Top3: %s | %s",
+                     "PASS" if recognized else "REJECT",
+                     w, h, name if recognized else top5[0][0] if top5 else "?",
+                     score, margin_val, top5_str,
+                     "已确认" if recognized else "未达阈值/margin")
+        results.append((name if recognized else "不在数据库中", score, box, recognized))
+    return results
+
+
+def detect_and_recognize_lbph(img, detector, rec, names, threshold=CONF_THRESHOLD):
+    """LBPH 识别（fallback）。"""
     results = []
     h, w = img.shape[:2]
     scale = min(1.0, float(DETECTION_MAX_WIDTH) / float(max(w, 1)))
@@ -334,7 +674,6 @@ def detect_and_recognize(img, detector, rec, names, threshold=CONF_THRESHOLD):
         if f[14] < MIN_DETECT_SCORE:
             continue
         x, y, fw, fh = [int(v) for v in f[:4]]
-        # 映射回原始帧坐标
         ox = max(0, int(x * inv)); oy = max(0, int(y * inv))
         ow = min(w - ox, int(fw * inv)); oh = min(h - oy, int(fh * inv))
         face = gray[oy:oy + oh, ox:ox + ow]
@@ -344,8 +683,7 @@ def detect_and_recognize(img, detector, rec, names, threshold=CONF_THRESHOLD):
         face = cv2.equalizeHist(face)
         try:
             idx, conf = rec.predict(face)
-        except Exception as e:  # noqa: BLE001
-            log.warning("predict err: %s", e)
+        except Exception:
             results.append(("不在数据库中", 999.0, (ox, oy, ow, oh), False))
             continue
         if 0 <= idx < len(names) and conf <= threshold:
@@ -371,12 +709,12 @@ class CameraManager:
         # 相机信息
         self.camera_info = {}
 
-        # 识别线程共享的最新人脸框（原始帧坐标）
+        # 识别线程共享的最新人脸框
         self._boxes = []
         self._boxes_lock = threading.Lock()
 
-        # 识别结果共享（供写 last_recognition.json，避免识别线程高频 IO）
-        self._recog_pending = None  # (name, status, conf)
+        # 识别结果共享
+        self._recog_pending = None
 
         # FPS 统计
         self.fps_capture = FPSCounter()
@@ -386,9 +724,14 @@ class CameraManager:
         # 相机/识别器
         self._ia = None
         self._h = None
-        self._rec = None
+        self._rec = None       # LBPH (fallback)
         self._names = []
+        self._sface = None     # SFace (主)
+        self._gallery = None   # SFace Gallery
+        self._id_cache = None  # 身份缓存
+        self._confirmer = None # 多帧确认
         self._detector = None
+        self._use_sface = False
 
         # 线程句柄
         self._threads = []
@@ -413,7 +756,6 @@ class CameraManager:
 
     # ---------- Harvester ----------
     def _init_camera(self):
-        """初始化 Harvester + 相机，配置自由运行 + 尝试 30FPS。"""
         from harvesters.core import Harvester
         h = Harvester()
         h.add_file(CTI)
@@ -422,7 +764,6 @@ class CameraManager:
             raise RuntimeError("未找到相机设备")
         ia = h.create(0)
         ia.remote_device.node_map.TriggerMode.value = "Off"
-        # 读取/尝试设置硬件 FPS
         nm = ia.remote_device.node_map
         info = {}
         try:
@@ -449,7 +790,7 @@ class CameraManager:
             elif hasattr(nm, "AcquisitionFrameRateAbs") and hasattr(nm.AcquisitionFrameRateAbs, "value"):
                 nm.AcquisitionFrameRateAbs.value = CAMERA_TARGET_FPS
                 info["fps_configured"] = nm.AcquisitionFrameRateAbs.value
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.warning("AcquisitionFrameRate 设置失败(忽略): %s", e)
         try:
             ia.start()
@@ -461,7 +802,6 @@ class CameraManager:
         log.info("相机已连接: %s", info)
 
     def _grab_frame(self):
-        """从相机抓一帧 -> BGR or None（仅采集线程调用）。"""
         ia = self._ia
         if ia is None:
             return None
@@ -500,7 +840,7 @@ class CameraManager:
                 self.connected = True
                 self.last_error = None
                 self.fps_capture.tick()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 self.connected = False
                 self.last_error = str(e)
                 log.warning("capture error: %s (相机可能断开，2s 后重试)", e)
@@ -529,24 +869,20 @@ class CameraManager:
                 else:
                     preview = frame
                 _acc("resize", (time.perf_counter() - start) * 1000.0)
-                # 先旋转到显示方向（与 UI 一致，右旋 90°）
                 preview = cv2.rotate(preview, cv2.ROTATE_90_CLOCKWISE)
-                # 轻量锐化 filter2D 3x3（GaussianBlur 在双核满载下极贵，改用卷积核提速）
                 _k = np.array([[-0.1, -0.1, -0.1], [-0.1, 1.8, -0.1], [-0.1, -0.1, -0.1]], dtype=np.float32)
                 preview = cv2.filter2D(preview, -1, _k)
                 _acc("rotate", (time.perf_counter() - start) * 1000.0)
-                # 画人脸框（识别线程在旋转后帧检测，坐标与显示坐标系一致，直接 *scale）
                 label_items = []
                 for name, conf, box, recognized in self.get_boxes():
                     x, y, w, h = [int(v) for v in box]
                     x = int(x * scale); y = int(y * scale)
                     w = int(w * scale); h = int(h * scale)
-                    color = (30, 111, 240) if recognized else (30, 170, 250)  # BGR 蓝/黄
+                    color = (30, 111, 240) if recognized else (30, 170, 250)
                     label = name if recognized else "不在数据库中"
                     cv2.rectangle(preview, (x, y), (x + w, y + h), color, 2)
                     label_items.append((x, y, h, label, color))
                 _acc("boxes", (time.perf_counter() - start) * 1000.0)
-                # 框每帧实时；PIL 中文姓名隔帧绘制（降 CPU，Win7 老机器）
                 self._label_cnt = getattr(self, '_label_cnt', 0) + 1
                 if label_items and self._label_cnt % 4 == 0:
                     _draw_cn_labels(preview, label_items)
@@ -555,17 +891,15 @@ class CameraManager:
                 if not ok:
                     continue
                 _acc("enc", (time.perf_counter() - start) * 1000.0)
-                # 发布到内部状态（内存共享，无磁盘 IO；Flask 通过内部 HTTP 代理）
                 _publish(jpeg.tobytes(), self.latest_ts if self.latest_ts else time.time(),
                          self.fps_capture.fps(), self.fps_preview.fps(), self.fps_recognition.fps(),
                          self.connected)
-                # 低频兼容写 frame_live.jpg（1 秒一次，复用已编码 jpeg，避免重复 imencode）
                 now = time.time()
                 if now - self._last_frame_live >= 1.0:
                     self._last_frame_live = now
                     try:
                         jpeg.tofile(FRAME_LIVE)
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         pass
                 _acc("pub", (time.perf_counter() - start) * 1000.0)
                 self.fps_preview.tick()
@@ -574,10 +908,10 @@ class CameraManager:
                     def _md(k):
                         v = _prof.get(k)
                         return round(sum(v) / len(v), 2) if v else 0.0
-                    log.info("PROF preview get=%.2f resize=%.2f rotate=%.2f boxes=%.2f pil=%.2f enc=%.2f pub=%.2f total=%.2fms fps=%.1f",
-                             _md("get"), _md("resize"), _md("rotate"), _md("boxes"), _md("pil"), _md("enc"), _md("pub"), _md("total"), self.fps_preview.fps())
+                    log.info("PROF preview resize=%.2f rotate=%.2f boxes=%.2f pil=%.2f enc=%.2f pub=%.2f total=%.2fms fps=%.1f",
+                             _md("resize"), _md("rotate"), _md("boxes"), _md("pil"), _md("enc"), _md("pub"), _md("total"), self.fps_preview.fps())
                     _prof = {}
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import traceback as _tb
                 log.warning("preview error: %s\n%s", e, _tb.format_exc())
             elapsed = time.perf_counter() - start
@@ -588,7 +922,6 @@ class CameraManager:
 
     # ---------- 识别线程 ----------
     def _write_last_recognition(self, name, status, conf=None):
-        """低频写 last_recognition.json（1.5s 冷却）。"""
         now = time.time()
         if now - getattr(self, "_last_recogn_written", 0.0) < LAST_RECOG_INTERVAL:
             return
@@ -600,12 +933,13 @@ class CameraManager:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
             os.replace(tmp, LAST_RECOG)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.warning("write last recognition failed: %s", e)
 
     def recognition_loop(self):
         _set_thread_prio(PRIO_BELOW)
-        log.info("recognition thread started, 名单 %d 人", len(self._names))
+        mode = "SFace深度特征" if self._use_sface else "LBPH(fallback)"
+        log.info("recognition thread started, 模式=%s, 名单 %d 人", mode, len(self._names))
         last_seen = {}
         last_capture = {}
         while self.running.is_set():
@@ -616,16 +950,20 @@ class CameraManager:
                 continue
             try:
                 checked, path = read_checkin()
-                # 识别在右旋 90° 的帧上进行：人脸正立，YuNet/LBPH 检测与识别效果最佳；
-                # 返回框为显示坐标系，预览画框可直接对齐（方向永远正确）。
                 rot = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                results = detect_and_recognize(rot, self._detector, self._rec, self._names)
-                # 共享人脸框供预览画框
+                # 优先使用 SFace，失败回退 LBPH
+                if self._use_sface and self._sface is not None and self._gallery is not None:
+                    # 自动检测新照片并重建 Gallery
+                    self._gallery.build(self._sface, self._detector, force=False)
+                    results = detect_and_recognize_sface(rot, self._detector, self._sface,
+                                                           self._gallery, self._id_cache, self._confirmer)
+                else:
+                    results = detect_and_recognize_lbph(rot, self._detector, self._rec, self._names)
                 self.set_boxes(results)
                 now = time.time()
                 any_member = False
                 for name, conf, box, recognized in results:
-                    # 分类捕获：名单内按姓名存文件夹，不在数据库中存"不在数据库中"文件夹（8s 冷却）
+                    # 分类捕获
                     last_c = last_capture.get(name, 0.0)
                     if now - last_c >= CAPTURE_COOLDOWN:
                         self._save_capture(rot, box, name)
@@ -642,7 +980,7 @@ class CameraManager:
                     checked.add(name)
                     write_checkin(checked, path)
                     last_seen[name] = now
-                    log.info("已打卡: %s (conf=%.1f)", name, conf)
+                    log.info("已打卡: %s (score=%.3f)", name, conf)
                     self._write_last_recognition(name, "checked", conf)
                 if results and not any_member:
                     self._write_last_recognition("不在数据库中", "stranger")
@@ -650,7 +988,7 @@ class CameraManager:
                     name0 = next((r[0] for r in results if r[3]), "成员")
                     self._write_last_recognition(name0, "seen")
                 self.fps_recognition.tick()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import traceback as _tb
                 log.warning("recognition error: %s\n%s", e, _tb.format_exc())
             elapsed = time.perf_counter() - start
@@ -672,19 +1010,35 @@ class CameraManager:
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             cv2.imencode(".jpg", face_img, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tofile(
                 os.path.join(folder, "%s.jpg" % ts))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.warning("save face capture failed: %s", e)
 
     # ---------- 生命周期 ----------
     def start(self):
-        # 初始化识别器
-        self._rec, self._names = load_recognizer()
-        if self._rec is None:
-            raise RuntimeError("识别模型加载失败")
+        # 初始化 YuNet 检测器
         self._detector = cv2.FaceDetectorYN_create(YUNET, "", (320, 320), 0.6, 0.3, 5000)
+
+        # 优先加载 SFace 深度识别器
+        self._sface = load_sface()
+        if self._sface is not None:
+            self._gallery = FaceGallery()
+            self._id_cache = IdentityCache()
+            self._confirmer = MultiFrameConfirmer(n=MULTI_FRAME_CONFIRM)
+            n = self._gallery.build(self._sface, self._detector, force=False)
+            self._names = list(set(self._gallery.names)) if self._gallery.names else []
+            self._use_sface = True
+            log.info("SFace 模式启用: Gallery %d 人", n)
+        else:
+            # 回退 LBPH
+            self._rec, self._names = load_recognizer()
+            if self._rec is None:
+                raise RuntimeError("识别模型加载失败(SFace和LBPH均不可用)")
+            self._use_sface = False
+            log.info("SFace 不可用，回退 LBPH 模式: %d 人", len(self._names))
+
         # 初始化相机
         self._init_camera()
-        # 启动内部 HTTP 流服务（Flask 代理用）
+        # 启动内部 HTTP 流服务
         _start_internal_http()
         # 启动线程
         self._threads = [
@@ -694,7 +1048,8 @@ class CameraManager:
         ]
         for t in self._threads:
             t.start()
-        log.info("CameraManager 已启动：采集/预览/识别 三线程")
+        log.info("CameraManager 已启动：采集/预览/识别 三线程, 模式=%s",
+                 "SFace" if self._use_sface else "LBPH")
 
     def stop(self):
         log.info("CameraManager 停止中…")
@@ -705,23 +1060,22 @@ class CameraManager:
         if _internal_http is not None:
             try:
                 _internal_http.shutdown()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             _internal_http = None
         try:
             if self._ia is not None:
                 self._ia.stop(); self._ia.destroy()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         if self._h is not None:
             try:
                 self._h.reset()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         log.info("CameraManager 已停止，Harvester 已释放")
 
     def run(self):
-        """阻塞运行：start + 等待中断信号。"""
         self.start()
         try:
             while self.running.is_set():

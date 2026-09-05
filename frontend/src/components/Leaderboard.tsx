@@ -81,50 +81,32 @@ export default function Leaderboard() {
           暂无打卡数据 · 接入飞书考勤/工时表后显示
         </div>
       ) : (
-        <div className="space-y-1 max-h-[300px] overflow-y-auto leader-scroll pr-1">
+        <div className="space-y-1 max-h-[200px] overflow-y-auto leader-scroll pr-1">
           {list.map(({ p, s }, i) => {
             const dur = splitDur(minutesOf(p))
             return (
               <div
                 key={p.userId}
-                className={`flex items-center gap-2 rounded-md border px-2 py-1 card-lift anim-enter ${s.card}`}
+                className={`flex items-center gap-2 rounded-md border px-2 py-1.5 card-lift anim-enter ${s.card}`}
                 style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
               >
                 {s.big && <Crown size={10} className="text-accent-bright shrink-0" />}
                 <span
-                  className={`num-mono text-[10px] font-bold px-1 py-0.5 rounded ${s.chip}`}
+                  className={`num-mono text-[10px] font-bold px-1 py-0.5 rounded shrink-0 w-5 text-center ${s.chip}`}
                 >
                   {String(i + 1).padStart(2, '0')}
                 </span>
                 <Avatar name={p.userName} url={p.avatarUrl} size={20} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-semibold text-gray-100 truncate leading-tight">
-                    {p.userName || '未命名'}
-                  </div>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    {p.group && (
-                      <>
-                        <span
-                          className="w-1 h-1 rounded-full shrink-0"
-                          style={{ background: GROUP_DOT[p.group as Group] ?? '#5a6670' }}
-                        />
-                        <span className="text-[8px] text-base-300">{p.group}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end shrink-0">
-                  <div className="flex items-baseline gap-0.5">
-                    <span className={`num-mono font-bold text-base leading-none ${s.num}`}>
-                      {dur.h}
-                    </span>
-                    <span className={`num-mono text-[9px] leading-none ${s.num}`}>h</span>
-                    <span className="num-mono text-[10px] text-gray-200 leading-none ml-0.5">
-                      {dur.m}m
-                    </span>
-                  </div>
-                  <span className="text-[7px] text-base-400">
-                    {s.big ? '第 1 名' : `第 ${i + 1} 名`}
+                <span className="text-[12px] font-semibold text-gray-100 truncate w-16 shrink-0">
+                  {p.userName || '未命名'}
+                </span>
+                <div className="flex items-baseline gap-0.5 ml-auto shrink-0">
+                  <span className={`num-mono font-bold text-[14px] leading-none ${s.num}`}>
+                    {dur.h}
+                  </span>
+                  <span className={`num-mono text-[10px] leading-none ${s.num}`}>h</span>
+                  <span className="num-mono text-[11px] text-gray-300 leading-none">
+                    {dur.m}m
                   </span>
                 </div>
               </div>
