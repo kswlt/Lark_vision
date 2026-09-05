@@ -1,8 +1,50 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Bot, ClipboardList, LayoutDashboard, Network, RefreshCw, Users } from 'lucide-react'
+import { Bot, ClipboardList, LayoutDashboard, Moon, Network, RefreshCw, Sun, Users } from 'lucide-react'
 import { useData } from '../store'
 import { DATA_SOURCE_LABEL } from '../config/constants'
+
+const THEME_KEY = 'rm_theme_v1'
+const AUTO_REFRESH_SEC = 30
+
+function useTheme(): [boolean, () => void] {
+  const [dark, setDark] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_KEY) === 'dark'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    const root = document.documentElement
+    if (dark) {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+    try {
+      localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light')
+    } catch {
+      /* ignore */
+    }
+  }, [dark])
+  return [dark, () => setDark((d) => !d)]
+}
+
+/** 自动刷新倒计时：与 store 的 30 秒轮询同步 */
+function useAutoRefreshCountdown(refreshTick: number): number {
+  const [countdown, setCountdown] = useState(AUTO_REFRESH_SEC)
+  useEffect(() => {
+    setCountdown(AUTO_REFRESH_SEC)
+  }, [refreshTick])
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown((c) => (c > 0 ? c - 1 : AUTO_REFRESH_SEC))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+  return countdown
+}
 
 const NAV = [
   { to: '/dashboard', label: '首页', icon: LayoutDashboard },
@@ -32,8 +74,10 @@ interface TopBarProps {
 
 /** 顶部导航栏：品牌 + 导航 + 时钟 + 数据源 + 刷新 + 缩放 */
 export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
-  const { health, loading, refresh } = useData()
+  const { health, loading, refresh, lastRefresh } = useData()
   const clock = useClock()
+  const [dark, toggleDark] = useTheme()
+  const countdown = useAutoRefreshCountdown(lastRefresh)
   const live = health?.dataSource === 'feishu'
   const source = health?.dataSource ?? 'mock'
 
@@ -105,13 +149,26 @@ export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
         {DATA_SOURCE_LABEL[source] ?? source} · v{health?.version ?? '-'}
       </span>
 
-      {/* 刷新 */}
+      {/* 刷新 + 自动刷新倒计时 */}
       <button
         onClick={refresh}
-        className="flex items-center gap-1 px-2 py-1 rounded border border-base-600 text-[10px] text-base-300 hover:text-gray-200 clickable"
+        className="flex items-center gap-1.5 px-2 py-1 rounded border border-base-600 text-[10px] text-base-300 hover:text-gray-200 clickable"
+        title={`手动刷新（每${AUTO_REFRESH_SEC}秒自动刷新）`}
       >
         <RefreshCw size={11} className={loading ? 'spin' : ''} />
         刷新
+        <span className="num-mono text-[9px] text-base-400 ml-0.5">
+          {countdown}s
+        </span>
+      </button>
+
+      {/* 深色模式切换 */}
+      <button
+        onClick={toggleDark}
+        className="flex items-center justify-center w-8 h-8 rounded border border-base-600 text-base-300 hover:text-gray-200 clickable"
+        title={dark ? '切换浅色模式' : '切换深色模式'}
+      >
+        {dark ? <Sun size={14} /> : <Moon size={14} />}
       </button>
 
       {/* 缩放 */}

@@ -44,11 +44,11 @@ export default function UncheckedTicker() {
   const list = overflow && unchecked?.length ? doubled : unchecked
 
   return (
-    <div className="flex items-center gap-3 rounded-md border-2 border-accent-dim/50 bg-white px-4 py-2.5 overflow-hidden anim-enter shadow-sm">
+    <div className="flex items-center gap-3 rounded-md border-2 border-accent-dim/50 bg-base-850 px-4 py-2.5 overflow-hidden anim-enter shadow-sm">
       {/* 未打卡滚动 */}
       <span className="shrink-0 flex items-center gap-2 pl-1">
         <AlertTriangle size={20} className="text-amber-500 pulse-soft" />
-        <span className="text-[16px] font-black text-gray-800 tracking-wide">
+        <span className="text-[16px] font-black text-gray-100 tracking-wide">
           今日未打卡
         </span>
       </span>
@@ -61,7 +61,7 @@ export default function UncheckedTicker() {
         >
           <div className="flex items-center gap-8">
             {unchecked.map((n) => (
-              <span key={n} className="text-[15px] font-bold text-gray-700 whitespace-nowrap">
+              <span key={n} className="text-[15px] font-bold text-gray-200 whitespace-nowrap">
                 {n}
               </span>
             ))}
@@ -72,7 +72,7 @@ export default function UncheckedTicker() {
             {list.map((n, i) => (
               <span
                 key={`${n}-${i}`}
-                className="text-[15px] font-bold text-gray-700 whitespace-nowrap"
+                className="text-[15px] font-bold text-gray-200 whitespace-nowrap"
               >
                 {n}
               </span>

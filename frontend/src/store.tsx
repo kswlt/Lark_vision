@@ -33,6 +33,7 @@ interface DataState {
   faceCheckin: string[]
   loading: boolean
   error: string | null
+  lastRefresh: number
   refresh: () => void
 }
 
@@ -53,12 +54,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
+  const [lastRefresh, setLastRefresh] = useState(Date.now())
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 
-  // 自动轮询：每 60 秒自动刷新一次，跟随飞书多维表格/考勤最新数据
+  // 自动轮询：每 30 秒自动刷新一次，跟随飞书多维表格/考勤最新数据
   useEffect(() => {
-    const id = setInterval(() => refresh(), 60_000)
+    const id = setInterval(() => refresh(), 30_000)
     return () => clearInterval(id)
   }, [refresh])
 
@@ -85,6 +87,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const failed = results.filter((x) => x.status === 'rejected')
       if (failed.length) setError(`部分数据加载失败 (${failed.length})`)
       setLoading(false)
+      setLastRefresh(Date.now())
     })
     Promise.allSettled([
       api.worktime('week'),
@@ -123,9 +126,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       faceCheckin,
       loading,
       error,
+      lastRefresh,
       refresh
     }),
-    [tasks, dashboard, groups, robots, worktimeWeek, worktimeMonth, people, health, duty, unchecked, faceCheckin, loading, error, refresh]
+    [tasks, dashboard, groups, robots, worktimeWeek, worktimeMonth, people, health, duty, unchecked, faceCheckin, loading, error, lastRefresh, refresh]
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

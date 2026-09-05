@@ -25,6 +25,7 @@ function readScale(): number {
 
 export default function App() {
   const [scale, setScale] = useState<number>(readScale)
+  const [shift, setShift] = useState({ x: 0, y: 0 })
 
   useEffect(() => {
     // 全局缩放（Chromium 支持 html.zoom，等效浏览器缩放）
@@ -36,6 +37,17 @@ export default function App() {
     }
   }, [scale])
 
+  // 像素偏移防烧屏：每隔3分钟整个页面随机偏移1-2px，肉眼不可察觉但避免固定像素老化
+  useEffect(() => {
+    const id = setInterval(() => {
+      setShift({
+        x: Math.floor(Math.random() * 3) - 1, // -1, 0, 1
+        y: Math.floor(Math.random() * 3) - 1,
+      })
+    }, 3 * 60 * 1000) // 3分钟
+    return () => clearInterval(id)
+  }, [])
+
   const step = (dir: 1 | -1) => {
     const i = SCALES.indexOf(scale)
     const j = Math.max(0, Math.min(SCALES.length - 1, i + dir))
@@ -43,7 +55,10 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div
+      className="flex flex-col h-screen overflow-hidden"
+      style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
+    >
       <TopBar scale={scale} onScaleUp={() => step(1)} onScaleDown={() => step(-1)} />
       <main className="flex-1 overflow-y-auto">
         <Routes>

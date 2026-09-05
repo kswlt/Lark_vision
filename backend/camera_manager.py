@@ -58,7 +58,7 @@ SFACE_COSINE_THRESHOLD = 0.45   # SFace cosine 相似度阈值（现场统计：
 SFACE_L2_THRESHOLD = 1.128      # SFace L2 距离阈值（官方推荐，越小越像）
 SFACE_MATCH_MARGIN = 0.05       # best-second 最小间隔，防止"勉强最像"误识别
 MULTI_FRAME_CONFIRM = 3         # 多帧确认帧数（连续N帧识别同一人才确认）
-IDENTITY_CACHE_TTL = 15         # 身份缓存 TTL（秒），同一人脸特征缓存结果避免重复计算
+IDENTITY_CACHE_TTL = 3          # 身份缓存 TTL（秒），同一人脸特征缓存结果避免重复计算（调试期降低以观察实时识别）
 GALLERY_REBUILD_INTERVAL = 3600  # Gallery 重建间隔（秒），检测到新照片自动重建
 
 BASE = r"C:\RoboMasterDashboard"
@@ -334,7 +334,8 @@ class FaceGallery:
                 try:
                     data = np.load(GALLERY_FILE, allow_pickle=True)
                     self.names = list(data["names"])
-                    self.vectors = [v for v in data["vectors"]]
+                    # 强制转换为 float32（旧缓存可能是 object 类型，会导致 sface.match 报错）
+                    self.vectors = [np.ascontiguousarray(v, dtype=np.float32).flatten() for v in data["vectors"]]
                     self.name_to_idx = {}
                     for i, n in enumerate(self.names):
                         if n not in self.name_to_idx:
@@ -399,9 +400,11 @@ class FaceGallery:
             self._last_mtime = mtime
             self._last_rebuild = now
 
-            # 保存缓存
+            # 保存缓存（vectors 必须是 float32，否则 sface.match 报 object type 错误）
             try:
-                np.savez(GALLERY_FILE, names=np.array(names, dtype=object), vectors=np.array(vectors, dtype=object))
+                np.savez(GALLERY_FILE,
+                         names=np.array(names, dtype=object),
+                         vectors=np.array(vectors, dtype=np.float32))
             except Exception as e:
                 log.warning("Gallery 缓存保存失败: %s", e)
 
@@ -422,15 +425,24 @@ class FaceGallery:
                 return None, 0.0, False, []
             # 对每个人取最大相似度
             person_scores = {}
+            match_errors = 0
+            feat_f32 = np.ascontiguousarray(feat, dtype=np.float32).reshape(1, -1)
             for i, v in enumerate(self.vectors):
                 try:
-                    score = float(sface.match(feat, v.reshape(1, -1), cv2.FaceRecognizerSF_FR_COSINE))
-                except Exception:
+                    v_f32 = np.ascontiguousarray(v, dtype=np.float32).reshape(1, -1)
+                    score = float(sface.match(feat_f32, v_f32, cv2.FaceRecognizerSF_FR_COSINE))
+                except Exception as _e:
+                    match_errors += 1
+                    if match_errors <= 3:
+                        log.warning("sface.match error i=%d: %s | feat_shape=%s vec_shape=%s",
+                                    i, _e, getattr(feat, 'shape', None), getattr(v, 'shape', None))
                     continue
                 name = self.names[i]
                 if name not in person_scores or score > person_scores[name]:
                     person_scores[name] = score
             if not person_scores:
+                log.warning("gallery.match: all %d vectors failed, feat_shape=%s",
+                            len(self.vectors), getattr(feat, 'shape', None))
                 return None, 0.0, False, []
             # Top-5 排序
             sorted_persons = sorted(person_scores.items(), key=lambda x: x[1], reverse=True)
@@ -641,13 +653,13 @@ def detect_and_recognize_sface(img, detector, sface, gallery, id_cache, confirme
                 name = "识别中..."
         # 5. 写入身份缓存
         id_cache.set(box, name if recognized else None, score, recognized)
-        # 6. Debug: 打印 Top-5（仅对识别为成员或接近阈值的人脸）
-        if recognized or (top5 and top5[0][1] >= 0.35):
+        # 6. Debug: 打印 Top-5（所有检测到人脸的情况都输出，方便诊断低分原因）
+        if top5:
             top5_str = ", ".join("%s:%.3f" % (n, s) for n, s in top5[:3])
             margin_val = top5[0][1] - top5[1][1] if len(top5) > 1 else 0
             log.info("识别 %s | bbox=%dx%d | best=%s(%.3f) margin=%.3f | Top3: %s | %s",
                      "PASS" if recognized else "REJECT",
-                     w, h, name if recognized else top5[0][0] if top5 else "?",
+                     w, h, name if recognized else top5[0][0],
                      score, margin_val, top5_str,
                      "已确认" if recognized else "未达阈值/margin")
         results.append((name if recognized else "不在数据库中", score, box, recognized))
