@@ -1,5 +1,5 @@
 export type Group = '算法' | '电控' | '机械' | '运营'
-export type Robot = '重装' | '步兵1' | '步兵2' | '哨兵' | '工程' | '雷达' | '飞镖'
+export type Robot = '重装' | '步兵' | '哨兵' | '雷达' | '飞镖'
 export type Priority = 'super_urgent' | 'important_urgent' | 'important' | 'normal'
 
 export interface Task {

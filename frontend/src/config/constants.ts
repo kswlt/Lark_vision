@@ -2,7 +2,7 @@ import type { Group, Priority, Robot } from '../types'
 
 export const GROUPS: Group[] = ['算法', '电控', '机械', '运营']
 
-export const ROBOTS: Robot[] = ['重装', '步兵1', '步兵2', '哨兵', '工程', '雷达', '飞镖']
+export const ROBOTS: Robot[] = ['重装', '步兵', '哨兵', '雷达', '飞镖']
 
 export const PRIORITY_LABEL: Record<Priority, string> = {
   super_urgent: '超紧急限时',
