@@ -269,6 +269,66 @@ def api_face_latest():
         return jsonify({"name": None, "time": None, "status": None})
 
 
+# ---------------- 飞书云文档（只读） ----------------
+@app.get("/api/docs/list")
+def api_docs_list():
+    """获取飞书云空间文件列表（只读）。folder_token 为空时取根目录。"""
+    if not store.feishu_configured or not store.client:
+        return jsonify({"files": [], "error": "飞书未配置"})
+    folder_token = request.args.get("folder_token", "")
+    try:
+        data = store.client.get(
+            "/drive/v1/files",
+            params={"folder_token": folder_token, "page_size": 50},
+        )
+        files = data.get("files", [])
+        # 只保留文档类文件，过滤掉文件夹以外的非文档类型
+        result = []
+        for f in files:
+            ftype = f.get("type", "")
+            if ftype in ("docx", "doc", "sheet", "bitable", "file", "folder", "mindnote", "slides"):
+                result.append({
+                    "token": f.get("token", ""),
+                    "name": f.get("name", ""),
+                    "type": ftype,
+                    "url": f.get("url", ""),
+                    "created_time": f.get("created_time", ""),
+                    "edited_time": f.get("edited_time", ""),
+                    "owner_id": f.get("owner_id", ""),
+                })
+        return jsonify({"files": result})
+    except Exception as e:
+        logger.exception("获取飞书文档列表失败")
+        return jsonify({"files": [], "error": str(e)}), 500
+
+
+@app.get("/api/docs/content")
+def api_docs_content():
+    """获取飞书文档内容（只读）。支持 docx / doc。"""
+    if not store.feishu_configured or not store.client:
+        return jsonify({"content": "", "error": "飞书未配置"})
+    doc_id = request.args.get("doc_id", "")
+    doc_type = request.args.get("type", "docx")
+    if not doc_id:
+        return jsonify({"content": "", "error": "缺少 doc_id"}), 400
+    try:
+        if doc_type == "docx":
+            # 新版文档：获取纯文本
+            data = store.client.get("/docx/v1/documents/%s/raw_content" % doc_id)
+            content = data.get("content", "")
+            return jsonify({"content": content, "type": "docx"})
+        elif doc_type == "doc":
+            # 旧版文档
+            data = store.client.get("/doc/v2/%s/content" % doc_id)
+            content = data.get("content", "")
+            return jsonify({"content": content, "type": "doc"})
+        else:
+            return jsonify({"content": "", "error": "不支持的文档类型: %s" % doc_type}), 400
+    except Exception as e:
+        logger.exception("获取飞书文档内容失败 doc_id=%s", doc_id)
+        return jsonify({"content": "", "error": str(e)}), 500
+
+
 # ---------------- 静态站点（React dist） ----------------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
