@@ -4,6 +4,7 @@ import { useData } from '../store'
 import TaskCard from '../components/TaskCard'
 import TaskDrawer from '../components/TaskDrawer'
 import { GROUPS, ROBOTS } from '../config/constants'
+import { isTaskActive } from '../lib/format'
 import type { Group, Task } from '../types'
 
 const STATS = [
@@ -24,7 +25,9 @@ export default function Robots() {
   const [selected, setSelected] = useState<Task | null>(null)
 
   const robotTasks = useMemo(() => {
-    let list = selectedRobot === 'none' ? tasks.filter((t) => !t.robot) : tasks.filter((t) => t.robot === selectedRobot)
+    let list = selectedRobot === 'none'
+      ? tasks.filter((t) => !t.robot && isTaskActive(t))
+      : tasks.filter((t) => t.robot === selectedRobot && isTaskActive(t))
     if (group) list = list.filter((t) => t.group === group)
     return list
   }, [tasks, selectedRobot, group])

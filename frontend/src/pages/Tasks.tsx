@@ -14,14 +14,15 @@ import {
   BlockedBadge
 } from '../components/Badge'
 import { GROUPS, ROBOTS, PRIORITY_LABEL, PRIORITY_ORDER } from '../config/constants'
-import { daysUntil, fmtAgo, fmtDate } from '../lib/format'
+import { daysUntil, fmtAgo, fmtDate, isTaskInactive } from '../lib/format'
 import type { Group, Priority, Robot, Task } from '../types'
 
-type QuickFilter = 'all' | 'overdue' | 'critical' | 'blocked' | 'stale' | 'dueSoon'
+type QuickFilter = 'active' | 'all' | 'overdue' | 'critical' | 'blocked' | 'stale' | 'dueSoon'
 type ViewMode = 'card' | 'list' | 'table'
 type SortKey = 'id' | 'due' | 'update' | 'priority'
 
 const QUICK: { key: QuickFilter; label: string }[] = [
+  { key: 'active', label: '进行中' },
   { key: 'all', label: '全部' },
   { key: 'overdue', label: '已延期' },
   { key: 'critical', label: '重要紧急' },
@@ -33,7 +34,7 @@ const QUICK: { key: QuickFilter; label: string }[] = [
 export default function Tasks() {
   const { tasks } = useData()
   const [params, setParams] = useSearchParams()
-  const [quick, setQuick] = useState<QuickFilter>('all')
+  const [quick, setQuick] = useState<QuickFilter>('active')
   const [group, setGroup] = useState<Group | ''>(params.get('group') as Group | '' || '')
   const [robot, setRobot] = useState<Robot | 'none' | ''>(
     (params.get('robot') as Robot | 'none' | '') || ''
@@ -53,6 +54,7 @@ export default function Tasks() {
 
   const filtered = useMemo(() => {
     let list = [...tasks]
+    if (quick === 'active') list = list.filter((t) => !isTaskInactive(t))
     if (quick === 'overdue') list = list.filter((t) => t.overdue)
     if (quick === 'critical') list = list.filter((t) => t.priority === 'important_urgent')
     if (quick === 'blocked') list = list.filter((t) => t.blocked)

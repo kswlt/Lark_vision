@@ -15,6 +15,36 @@ function loadLikes(): Record<string, number> {
   }
 }
 
+interface Floater {
+  id: number
+  userId: string
+}
+
+const LIKE_ANIMATIONS = `
+@keyframes like-heartbeat {
+  0% { transform: scale(1); }
+  15% { transform: scale(1.35); }
+  30% { transform: scale(0.9); }
+  45% { transform: scale(1.25); }
+  60% { transform: scale(0.95); }
+  75% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+@keyframes like-float-up {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  50% { opacity: 1; transform: translateY(-18px) scale(1.2); }
+  100% { opacity: 0; transform: translateY(-36px) scale(0.8); }
+}
+@keyframes like-glow {
+  0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  70% { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+.like-heart-anim { animation: like-heartbeat 0.6s ease-in-out; }
+.like-floater { animation: like-float-up 0.8s ease-out forwards; }
+.like-glow-anim { animation: like-glow 0.6s ease-out; }
+`
+
 interface WorktimeEntry {
   userId: string
   userName?: string
@@ -57,7 +87,9 @@ export default function Leaderboard() {
   const { worktimeWeek, worktimeMonth } = useData()
   const [range, setRange] = useState<'week' | 'month'>('week')
   const [likes, setLikes] = useState<Record<string, number>>(loadLikes)
-  const [popId, setPopId] = useState<string | null>(null)
+  const [floaters, setFloaters] = useState<Floater[]>([])
+  const [heartAnim, setHeartAnim] = useState<Record<string, number>>({})
+  const floaterId = useState({ value: 0 })[0]
 
   useEffect(() => {
     try { localStorage.setItem(LIKES_KEY, JSON.stringify(likes)) } catch { /* ignore */ }
@@ -65,22 +97,34 @@ export default function Leaderboard() {
 
   const handleLike = (userId: string) => {
     setLikes((prev) => ({ ...prev, [userId]: (prev[userId] || 0) + 1 }))
-    setPopId(userId)
-    setTimeout(() => setPopId((id) => (id === userId ? null : id)), 500)
+    // 爱心跳动动画
+    setHeartAnim((prev) => ({ ...prev, [userId]: (prev[userId] || 0) + 1 }))
+    // 飘升 +1
+    const id = ++floaterId.value
+    setFloaters((prev) => [...prev, { id, userId }])
+    setTimeout(() => {
+      setFloaters((prev) => prev.filter((f) => f.id !== id))
+    }, 800)
   }
 
   const full = range === 'week' ? worktimeWeek : worktimeMonth
-  // 前 3 用高亮样式，第 4 名起复用普通样式
-  const list = full.map((p, i) => ({ p, s: RANK_STYLE[Math.min(i, 2)] }))
   const minutesOf = (p: WorktimeEntry) =>
     range === 'week' ? p.weekMinutes ?? 0 : p.monthMinutes ?? 0
+  // 综合分数 = 工时小时数 + 点赞数 * 0.05（点赞权重很低，工时为主）
+  const scoreOf = (p: WorktimeEntry) =>
+    minutesOf(p) / 60 + (likes[p.userId] || 0) * 0.05
+  // 按综合分数降序排序
+  const sorted = [...full].sort((a, b) => scoreOf(b) - scoreOf(a))
+  // 前 3 用高亮样式，第 4 名起复用普通样式
+  const list = sorted.map((p, i) => ({ p, s: RANK_STYLE[Math.min(i, 2)] }))
 
   return (
     <div className="panel hud-frame px-2.5 py-1.5 flex flex-col anim-enter-slow">
+      <style>{LIKE_ANIMATIONS}</style>
       <div className="flex items-center justify-between mb-1 shrink-0">
         <span className="panel-title flex items-center gap-1">
           <Timer size={10} />
-          劳模榜 · 工时排行
+          劳模榜 · 综合排行
         </span>
         <div className="flex text-[9px] rounded border border-base-600 overflow-hidden">
           {(['week', 'month'] as const).map((r) => (
@@ -134,24 +178,39 @@ export default function Leaderboard() {
                     </span>
                   </div>
                   {/* 点赞按钮 */}
-                  <button
-                    onClick={() => handleLike(p.userId)}
-                    className={`flex items-center gap-0.5 px-1.5 py-1 rounded transition-all cursor-pointer text-red-500 hover:bg-red-500/10 active:scale-90 ${
-                      popId === p.userId ? 'scale-125' : 'scale-100'
-                    }`}
-                    title="点赞支持"
-                  >
-                    <Heart
-                      size={14}
-                      fill="currentColor"
-                      strokeWidth={2}
-                    />
-                    {(likes[p.userId] || 0) > 0 && (
-                      <span className="num-mono text-[11px] font-bold leading-none">
-                        {likes[p.userId]}
-                      </span>
-                    )}
-                  </button>
+                  <div className="relative flex items-center">
+                    <button
+                      onClick={() => handleLike(p.userId)}
+                      className={`relative flex items-center gap-0.5 px-1.5 py-1 rounded-full transition-all cursor-pointer text-red-500 hover:bg-red-500/10 active:scale-90 ${
+                        heartAnim[p.userId] ? 'like-glow-anim' : ''
+                      }`}
+                      title="点赞支持"
+                    >
+                      <Heart
+                        key={heartAnim[p.userId] || 0}
+                        size={14}
+                        fill="currentColor"
+                        strokeWidth={2}
+                        className={heartAnim[p.userId] ? 'like-heart-anim' : ''}
+                      />
+                      {(likes[p.userId] || 0) > 0 && (
+                        <span className="num-mono text-[11px] font-bold leading-none">
+                          {likes[p.userId]}
+                        </span>
+                      )}
+                    </button>
+                    {/* 飘升 +1 */}
+                    {floaters
+                      .filter((f) => f.userId === p.userId)
+                      .map((f) => (
+                        <span
+                          key={f.id}
+                          className="like-floater absolute -top-1 left-1/2 -translate-x-1/2 text-red-500 font-bold text-[12px] pointer-events-none whitespace-nowrap"
+                        >
+                          +1
+                        </span>
+                      ))}
+                  </div>
                 </div>
               </div>
             )

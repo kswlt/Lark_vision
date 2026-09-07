@@ -5,6 +5,7 @@ import TaskCard from '../components/TaskCard'
 import TaskDrawer from '../components/TaskDrawer'
 import { GROUP_DOT } from '../components/Badge'
 import { ROBOTS } from '../config/constants'
+import { isTaskActive } from '../lib/format'
 import type { Group, Robot, Task } from '../types'
 
 export default function Groups() {
@@ -17,7 +18,7 @@ export default function Groups() {
   const [selected, setSelected] = useState<Task | null>(null)
 
   const groupTasks = useMemo(() => {
-    let list = tasks.filter((t) => t.group === selectedGroup)
+    let list = tasks.filter((t) => t.group === selectedGroup && isTaskActive(t))
     if (robot) list = list.filter((t) => t.robot === robot)
     return list
   }, [tasks, selectedGroup, robot])

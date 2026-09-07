@@ -130,12 +130,9 @@ export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
       <span className="num-mono text-[12px] text-gray-300 flex items-center gap-1 px-2 py-1 rounded border border-base-600">
         <span className="w-1.5 h-1.5 rounded-full bg-accent-bright live-dot" />
         {pad2(clock.getMonth() + 1)}-{pad2(clock.getDate())}
-        <span className="clock-sep text-accent-bright">:</span>
-        {pad2(clock.getHours())}
-        <span className="clock-sep text-accent-bright">:</span>
-        {pad2(clock.getMinutes())}
+        <span className="text-accent-bright px-0.5">{pad2(clock.getHours())}:{pad2(clock.getMinutes())}</span>
         <span key={clock.getSeconds()} className="tick-pop text-gray-300">
-          {pad2(clock.getSeconds())}
+          :{pad2(clock.getSeconds())}
         </span>
       </span>
 

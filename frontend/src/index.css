@@ -284,24 +284,30 @@ body {
   border-right: 2px solid;
 }
 
-/* 首页任务卡片横向滚动（从右向左缓速） */
+/* 首页任务卡片横向滚动容器：JS 控制 scrollLeft 自动滚动 + 可拖拽 */
+.ticker-viewport {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  cursor: grab;
+  scroll-behavior: auto;
+}
+.ticker-viewport::-webkit-scrollbar {
+  display: none;
+}
+.ticker-viewport.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
 .ticker-h-track {
   display: inline-flex;
   align-items: stretch;
   gap: 0.75rem;
   will-change: transform;
-  animation: tickerH 320s linear infinite;
+  pointer-events: none;
 }
-.ticker-h-track:hover {
-  animation-play-state: paused;
-}
-@keyframes tickerH {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
+.ticker-h-track > * {
+  pointer-events: auto;
 }
 
 /* 两行截断 */
@@ -397,3 +403,14 @@ body {
   }
 }
 
+/* 任务卡片紧急倒计时呼吸闪烁：距截止越近闪烁越快 */
+@keyframes rm-urgency {
+  0%, 100% {
+    border-color: rgba(248,113,113,.95);
+    box-shadow: 0 0 10px rgba(248,113,113,.35), inset 0 0 14px rgba(248,113,113,.14);
+  }
+  50% {
+    border-color: rgba(248,113,113,.28);
+    box-shadow: 0 0 2px rgba(248,113,113,.03), inset 0 0 2px rgba(248,113,113,.01);
+  }
+}

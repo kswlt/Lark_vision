@@ -52,3 +52,16 @@ export function fmtAgo(days: number): string {
   if (days === 1) return '1天'
   return `${days}天`
 }
+
+import type { Task } from '../types'
+
+/** 已完结（完成/停滞/停止）的任务视为不再进行中 */
+export function isTaskInactive(t: Task): boolean {
+  const s = t.status || ''
+  return s.includes('完成') || s.includes('停滞') || s.includes('停止')
+}
+
+/** 只保留进行中任务 */
+export function isTaskActive(t: Task): boolean {
+  return !isTaskInactive(t)
+}
