@@ -43,7 +43,7 @@ export default function Tasks() {
   const [owner, setOwner] = useState('')
   const [query, setQuery] = useState('')
   const [view, setView] = useState<ViewMode>('card')
-  const [sort, setSort] = useState<SortKey>('priority')
+  const [sort, setSort] = useState<SortKey>('due')
   const [selected, setSelected] = useState<Task | null>(null)
 
   const owners = useMemo(() => {

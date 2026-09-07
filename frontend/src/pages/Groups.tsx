@@ -5,7 +5,7 @@ import TaskCard from '../components/TaskCard'
 import TaskDrawer from '../components/TaskDrawer'
 import { GROUP_DOT } from '../components/Badge'
 import { ROBOTS } from '../config/constants'
-import { isTaskActive } from '../lib/format'
+import { daysUntil, isTaskActive } from '../lib/format'
 import type { Group, Robot, Task } from '../types'
 
 export default function Groups() {
@@ -20,7 +20,12 @@ export default function Groups() {
   const groupTasks = useMemo(() => {
     let list = tasks.filter((t) => t.group === selectedGroup && isTaskActive(t))
     if (robot) list = list.filter((t) => t.robot === robot)
-    return list
+    // 按剩余时间升序：逾期/无截止日期排最后，还剩最少的排最前
+    return list.sort((a, b) => {
+      const da = a.dueDate ? daysUntil(a.dueDate) : 9999
+      const db = b.dueDate ? daysUntil(b.dueDate) : 9999
+      return da - db
+    })
   }, [tasks, selectedGroup, robot])
 
   const active = groups.find((g) => g.group === selectedGroup)

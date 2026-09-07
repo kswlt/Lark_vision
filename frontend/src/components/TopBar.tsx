@@ -131,7 +131,7 @@ export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
         <span className="w-1.5 h-1.5 rounded-full bg-accent-bright live-dot" />
         {pad2(clock.getMonth() + 1)}-{pad2(clock.getDate())}
         <span className="text-accent-bright px-0.5">{pad2(clock.getHours())}:{pad2(clock.getMinutes())}</span>
-        <span key={clock.getSeconds()} className="tick-pop text-gray-300">
+        <span key={clock.getSeconds()} className="tick-pop text-accent-bright">
           :{pad2(clock.getSeconds())}
         </span>
       </span>
