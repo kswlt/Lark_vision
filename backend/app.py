@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from services import aggregates  # noqa: E402
 from services.sources import DataStore  # noqa: E402
+from config.featured_docs import FEATURED_DOCS  # noqa: E402
 
 VERSION = "1.0.0"
 
@@ -272,7 +273,14 @@ def api_face_latest():
 # ---------------- 飞书云文档（只读） ----------------
 @app.get("/api/docs/list")
 def api_docs_list():
-    """获取飞书云空间文件列表（只读）。folder_token 为空时取根目录。"""
+    """获取展示文档列表（只读）。
+    优先返回 config/featured_docs.py 中配置的精选文档（无需文件夹授权）；
+    若未配置，则尝试从飞书云空间文件夹列出（需 folder_token 且应用有文件夹权限）。
+    """
+    # 优先返回精选文档（配置式，稳定可靠）
+    if FEATURED_DOCS:
+        return jsonify({"files": FEATURED_DOCS, "source": "featured"})
+    # 兜底：从飞书文件夹列出（需授权）
     if not store.feishu_configured or not store.client:
         return jsonify({"files": [], "error": "飞书未配置"})
     folder_token = request.args.get("folder_token", "")
@@ -282,7 +290,6 @@ def api_docs_list():
             params={"folder_token": folder_token, "page_size": 50},
         )
         files = data.get("files", [])
-        # 只保留文档类文件，过滤掉文件夹以外的非文档类型
         result = []
         for f in files:
             ftype = f.get("type", "")
@@ -292,11 +299,8 @@ def api_docs_list():
                     "name": f.get("name", ""),
                     "type": ftype,
                     "url": f.get("url", ""),
-                    "created_time": f.get("created_time", ""),
-                    "edited_time": f.get("edited_time", ""),
-                    "owner_id": f.get("owner_id", ""),
                 })
-        return jsonify({"files": result})
+        return jsonify({"files": result, "source": "folder"})
     except Exception as e:
         logger.exception("获取飞书文档列表失败")
         return jsonify({"files": [], "error": str(e)}), 500
