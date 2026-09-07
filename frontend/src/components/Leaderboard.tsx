@@ -110,6 +110,9 @@ export default function Leaderboard() {
   const full = range === 'week' ? worktimeWeek : worktimeMonth
   const minutesOf = (p: WorktimeEntry) =>
     range === 'week' ? p.weekMinutes ?? 0 : p.monthMinutes ?? 0
+  // 全队总工时（当前范围内所有人的总工时之和）
+  const totalMinutes = full.reduce((sum, p) => sum + minutesOf(p), 0)
+  const totalDur = splitDur(totalMinutes)
   // 综合分数 = 工时小时数 + 点赞数 * 0.05（点赞权重很低，工时为主）
   const scoreOf = (p: WorktimeEntry) =>
     minutesOf(p) / 60 + (likes[p.userId] || 0) * 0.05
@@ -126,20 +129,29 @@ export default function Leaderboard() {
           <Timer size={10} />
           劳模榜 · 综合排行
         </span>
-        <div className="flex text-[9px] rounded border border-base-600 overflow-hidden">
-          {(['week', 'month'] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`px-1.5 py-0.5 transition-colors ${
-                range === r
-                  ? 'bg-accent-faint text-accent-bright'
-                  : 'text-base-400 hover:text-gray-200'
-              }`}
-            >
-              {r === 'week' ? '本周' : '本月'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          {/* 全队总工时统计 */}
+          <span className="flex items-baseline gap-0.5 text-[10px] text-base-300">
+            全队总工时
+            <span className="num-mono font-bold text-[13px] text-accent-bright">{totalDur.h}</span>
+            <span className="num-mono text-[9px] text-base-400">h</span>
+            <span className="num-mono text-[10px] text-gray-300">{totalDur.m}m</span>
+          </span>
+          <div className="flex text-[9px] rounded border border-base-600 overflow-hidden">
+            {(['week', 'month'] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`px-1.5 py-0.5 transition-colors ${
+                  range === r
+                    ? 'bg-accent-faint text-accent-bright'
+                    : 'text-base-400 hover:text-gray-200'
+                }`}
+              >
+                {r === 'week' ? '本周' : '本月'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

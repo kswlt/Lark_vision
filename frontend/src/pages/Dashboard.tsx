@@ -9,8 +9,6 @@ import TaskDrawer from '../components/TaskDrawer'
 import TaskFeed from '../components/TaskFeed'
 import UncheckedTicker from '../components/UncheckedTicker'
 import DocReader from '../components/DocReader'
-import { RobotBadge } from '../components/Badge'
-import { fmtDate } from '../lib/format'
 import { daysUntil } from '../lib/format'
 import { seasonMilestones } from '../config/season'
 import type { Milestone, Task } from '../types'
@@ -76,33 +74,13 @@ export default function Dashboard() {
       {/* 任务动态：页面主角，横贯全宽，40 条横向滚动（按活跃度排序） */}
       <TaskFeed onOpen={setSelected} feed={feed} />
 
-      {/* 超级紧急（左） + 未来 7 天（右） */}
+      {/* 超级紧急（左） + 值日（右） */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
         <div className="xl:col-span-2">
           <SuperUrgent onOpen={setSelected} />
         </div>
         <div className="xl:col-span-3 anim-enter-slow" style={{ animationDelay: '100ms' }}>
-          <div className="panel-title mb-2">未来 7 天</div>
-          <div className="panel p-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
-            {timeline.length === 0 && (
-              <div className="text-[12px] text-base-400 py-3">未来 7 天无到期任务</div>
-            )}
-            {timeline.map((t, i) => (
-              <button
-                key={t.id}
-                onClick={() => setSelected(t)}
-                className="flex items-center gap-3 px-2 py-1 rounded hover:bg-base-800 text-left clickable anim-enter"
-                style={{ animationDelay: `${i * 50}ms` }}
-              >
-                <span className="num-mono text-[11px] text-base-300 w-12 shrink-0">
-                  {t.dueDate ? fmtDate(t.dueDate) : '--'}
-                </span>
-                <span className="flex-1 text-[12px] text-gray-300 truncate">{t.title}</span>
-                <RobotBadge robot={t.robot} />
-                {t.overdue && <span className="text-[10px] text-red-400 shrink-0 pulse-soft">已延期</span>}
-              </button>
-            ))}
-          </div>
+          <DutyRoster />
         </div>
       </div>
 
@@ -111,7 +89,6 @@ export default function Dashboard() {
           <Leaderboard />
         </div>
         <div className="md:col-span-2 flex flex-col gap-4">
-          <DutyRoster />
           <DocReader />
         </div>
       </div>
