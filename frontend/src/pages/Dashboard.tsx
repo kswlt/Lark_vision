@@ -74,7 +74,7 @@ export default function Dashboard() {
       {/* 任务动态：页面主角，横贯全宽，40 条横向滚动（按活跃度排序） */}
       <TaskFeed onOpen={setSelected} feed={feed} />
 
-      {/* 超级紧急（左） + 值日（右） */}
+      {/* 超级紧急（左） + 值日（右） + 劳模榜（左下） + 文档预览（右下，贴着值日） */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
         <div className="xl:col-span-2">
           <SuperUrgent onOpen={setSelected} />
@@ -82,13 +82,10 @@ export default function Dashboard() {
         <div className="xl:col-span-3 anim-enter-slow" style={{ animationDelay: '100ms' }}>
           <DutyRoster />
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-stretch">
-        <div className="md:col-span-4">
+        <div className="xl:col-span-2">
           <Leaderboard />
         </div>
-        <div className="md:col-span-2 flex flex-col gap-4">
+        <div className="xl:col-span-3 flex flex-col gap-4">
           <DocReader />
         </div>
       </div>
