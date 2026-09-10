@@ -58,9 +58,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 
-  // 自动轮询：每 30 秒自动刷新一次，跟随飞书多维表格/考勤最新数据
+  // 自动刷新：每天 17:30 自动刷新一次（大幅降低飞书API调用）
+  // 其余时间依赖手动刷新按钮
   useEffect(() => {
-    const id = setInterval(() => refresh(), 30_000)
+    const REFRESH_HOUR = 17
+    const REFRESH_MINUTE = 30
+    let lastRefreshDay = -1
+
+    const checkAndRefresh = () => {
+      const now = new Date()
+      const today = now.getDate()
+      // 每天 17:30 后触发一次（且当天还没刷新过）
+      if (
+        (now.getHours() > REFRESH_HOUR ||
+          (now.getHours() === REFRESH_HOUR && now.getMinutes() >= REFRESH_MINUTE)) &&
+        lastRefreshDay !== today
+      ) {
+        lastRefreshDay = today
+        refresh()
+      }
+    }
+
+    // 启动时检查一次
+    checkAndRefresh()
+    // 每分钟检查一次是否到了刷新时间（几乎不消耗API，只是本地时间判断）
+    const id = setInterval(checkAndRefresh, 60_000)
     return () => clearInterval(id)
   }, [refresh])
 

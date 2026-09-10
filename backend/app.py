@@ -9,6 +9,7 @@ RoboMaster Team Adam 进度管理系统 —— Flask 后端入口。
 本地调试：
     python app.py --dev
 """
+import json
 import logging
 import os
 import sys
@@ -61,6 +62,7 @@ app = Flask(__name__, static_folder=None)
 store = DataStore()
 
 DIST_DIR = os.path.join(BASE_DIR, "dist")
+PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 
 
 @app.get("/api/health")
@@ -308,24 +310,39 @@ def api_docs_list():
 
 @app.get("/api/docs/content")
 def api_docs_content():
-    """获取飞书文档内容（只读）。支持 docx / doc。"""
-    if not store.feishu_configured or not store.client:
-        return jsonify({"content": "", "error": "飞书未配置"})
+    """获取飞书文档内容（只读）。优先读本地备份，本地没有再调飞书API。"""
     doc_id = request.args.get("doc_id", "")
     doc_type = request.args.get("type", "docx")
     if not doc_id:
         return jsonify({"content": "", "error": "缺少 doc_id"}), 400
+
+    # 优先读本地备份（解决飞书权限不足的问题）
+    local_backup = os.path.join(os.path.dirname(__file__), "config", "all_docs_content.json")
+    if os.path.exists(local_backup):
+        try:
+            with open(local_backup, "r", encoding="utf-8") as f:
+                backup = json.load(f)
+            if doc_id in backup and backup[doc_id].get("content"):
+                return jsonify({
+                    "content": backup[doc_id]["content"],
+                    "type": doc_type,
+                    "source": "local_backup"
+                })
+        except Exception as e:
+            root.warning("读取本地文档备份失败: %s", e)
+
+    # 本地没有，调用飞书API
+    if not store.feishu_configured or not store.client:
+        return jsonify({"content": "", "error": "飞书未配置且本地无备份"})
     try:
         if doc_type == "docx":
-            # 新版文档：获取纯文本
             data = store.client.get("/docx/v1/documents/%s/raw_content" % doc_id)
             content = data.get("content", "")
-            return jsonify({"content": content, "type": "docx"})
+            return jsonify({"content": content, "type": "docx", "source": "feishu_api"})
         elif doc_type == "doc":
-            # 旧版文档
             data = store.client.get("/doc/v2/%s/content" % doc_id)
             content = data.get("content", "")
-            return jsonify({"content": content, "type": "doc"})
+            return jsonify({"content": content, "type": "doc", "source": "feishu_api"})
         else:
             return jsonify({"content": "", "error": "不支持的文档类型: %s" % doc_type}), 400
     except Exception as e:
@@ -343,6 +360,16 @@ def static_files(path):
         resp = send_from_directory(DIST_DIR, path)
         # 带 hash 的 assets 可长缓存；其余页面入口不缓存，确保发布后立即生效
         if not path.startswith("assets/"):
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+        return resp
+    # 支持 public 目录下的静态文件（如宣传片视频）
+    if path and os.path.isfile(os.path.join(PUBLIC_DIR, path)):
+        resp = send_from_directory(PUBLIC_DIR, path)
+        # 视频文件允许浏览器缓存
+        if path.startswith("promo_videos/"):
+            resp.headers["Cache-Control"] = "public, max-age=86400"
+        else:
             resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             resp.headers["Pragma"] = "no-cache"
         return resp
