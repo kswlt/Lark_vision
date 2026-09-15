@@ -1,13 +1,15 @@
 @echo off
-REM Win7 ·À»ğÇ½£ºÖ»·ÅĞĞ TCP 8080£¨¾ÖÓòÍø£©£¬²»¹Ø±ÕÕû¸ö·À»ğÇ½¡£
-REM ¼ì²éÊÇ·ñÒÑÓĞÍ¬Ãû¹æÔò£¬±ÜÃâÖØ¸´Ìí¼Ó¡£
+REM ============================================================
+REM  Windows é˜²ç«å¢™è§„åˆ™ï¼šä»…å¼€æ”¾ TCP 8080ï¼ˆRoboMaster Dashboardï¼‰
+REM  ä¸å…³é—­ç³»ç»Ÿé˜²ç«å¢™ã€‚è§„åˆ™å·²å­˜åœ¨åˆ™è·³è¿‡ã€‚
+REM ============================================================
 setlocal
 netsh advfirewall firewall show rule name="RoboMaster Dashboard" >nul 2>nul
 if errorlevel 1 (
   netsh advfirewall firewall add rule name="RoboMaster Dashboard" dir=in action=allow protocol=TCP localport=8080
-  echo [OK] ÒÑÌí¼Ó·À»ğÇ½¹æÔò£ºTCP 8080 ÈëÕ¾·ÅĞĞ
+  echo [OK] å·²æ·»åŠ é˜²ç«å¢™è§„åˆ™: TCP 8080
 ) else (
-  echo [OK] ·À»ğÇ½¹æÔòÒÑ´æÔÚ£¬Ìø¹ı
+  echo [OK] é˜²ç«å¢™è§„åˆ™å·²å­˜åœ¨ï¼Œè·³è¿‡
 )
 netsh advfirewall firewall show rule name="RoboMaster Dashboard"
 endlocal

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 人脸打卡记录读取（由希沃端 camera_checkin.py 常驻服务写入）。
 
@@ -18,7 +17,7 @@ DATA_DIR = os.path.join(os.path.dirname(BASE_DIR), "data")
 
 
 def _today_path():
-    return os.path.join(DATA_DIR, "face_checkin_%s.json" % date.today().strftime("%Y%m%d"))
+    return os.path.join(DATA_DIR, "face_checkin_{}.json".format(date.today().strftime("%Y%m%d")))
 
 
 def read_today_checkin():
@@ -26,11 +25,11 @@ def read_today_checkin():
     path = _today_path()
     try:
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8-sig") as f:
+            with open(path, encoding="utf-8-sig") as f:
                 data = json.load(f)
                 names = data.get("names") or []
                 return {"date": data.get("date", date.today().isoformat()), "names": list(names)}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("读取人脸打卡记录失败: %s", e)
     return {"date": date.today().isoformat(), "names": []}
 

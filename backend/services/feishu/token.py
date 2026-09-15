@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 tenant_access_token 获取与内存缓存。
 按飞书返回的 expire 自动刷新，避免每次请求都重新获取。
@@ -11,7 +10,7 @@ import requests
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 
 
-class TokenManager(object):
+class TokenManager:
     def __init__(self, app_id, app_secret):
         self._app_id = app_id
         self._app_secret = app_secret
@@ -33,7 +32,7 @@ class TokenManager(object):
             resp.raise_for_status()
             data = resp.json()
             if data.get("code") != 0:
-                raise RuntimeError("获取 tenant_access_token 失败: %s" % data.get("msg"))
+                raise RuntimeError("获取 tenant_access_token 失败: {}".format(data.get("msg")))
             self._token = data["tenant_access_token"]
             expire = int(data.get("expire", 7200))
             self._expire_at = now + expire

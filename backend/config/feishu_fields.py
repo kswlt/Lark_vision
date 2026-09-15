@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 飞书多维表格字段集中配置。
 业务代码不得到处写死"任务是什么（通俗详细写，严禁用ai）"等中文字段名。
@@ -34,39 +33,27 @@ FEISHU_WORKTIME_FIELDS = {
     "duration": "工作时长(分钟)",
 }
 
-# 受控词表：飞书里历史遗留叫法统一映射到正式名称
-GROUP_ALIASES = {
-    "视觉": "算法",
-    "视觉组": "算法",
-    "Vision": "算法",
-    "Visual": "算法",
-    "vision": "算法",
-    "视觉算法": "算法",
-}
+# 受控词表 / 组别 / 兵种 / 优先级：统一从队伍配置（team.yaml）读取，
+# 未创建 team.yaml 时使用内置默认值（与 team.example.yaml 一致）。
+# 其他队伍 clone 后修改 backend/config/team.yaml 即可，无需改动 Python 代码。
+from config.team_config import (  # noqa: E402
+    ALLOWED_GROUPS,
+    ALLOWED_ROBOTS,
+    GROUP_ALIASES,
+    GROUP_PREFIXES,
+    PRIORITY_MAP,
+    ROBOT_ALIASES,
+    TEAM_NAME,
+)
 
-ROBOT_ALIASES = {
-    "英雄": "重装",
-    "hero": "重装",
-    "Hero": "重装",
-    "步兵1": "步兵",
-    "步兵2": "步兵",
-    "工程": "重装",
-    # "通用" 兵种被禁止：任何情况下都不应落到"通用"
-    "通用": None,
-}
-
-ALLOWED_GROUPS = ("算法", "电控", "机械", "运营")
-ALLOWED_ROBOTS = ("重装", "步兵", "哨兵", "雷达", "飞镖")
-
-PRIORITY_MAP = {
-    "超紧急限时": "super_urgent",
-    "重要紧急": "important_urgent",
-    "紧急": "important_urgent",
-    "重要": "important",
-    "重要不紧急": "important",
-    "紧急不重要": "important",
-    "一般": "normal",
-    "普通": "normal",
-    "不紧急不重要": "normal",
-    "低": "normal",
-}
+__all__ = [
+    "ALLOWED_GROUPS",
+    "ALLOWED_ROBOTS",
+    "FEISHU_FIELDS",
+    "FEISHU_WORKTIME_FIELDS",
+    "GROUP_ALIASES",
+    "GROUP_PREFIXES",
+    "PRIORITY_MAP",
+    "ROBOT_ALIASES",
+    "TEAM_NAME",
+]

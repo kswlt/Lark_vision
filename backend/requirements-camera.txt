@@ -1,0 +1,10 @@
+# =========================================================
+# 摄像头 / 人脸识别（可选功能）
+# 安装：pip install -r backend/requirements-camera.txt
+# 不安装本文件中的依赖时，Dashboard 仍可正常启动（camera_enabled=false）。
+# 华睿工业相机 SDK（harvesters / genicam）无法通过 pip 自动安装，
+# 需单独安装「华睿 MV Viewer」并配置 CAMERA_CTI_PATH，见 README「摄像头可选功能」。
+# =========================================================
+numpy>=1.21
+opencv-python>=4.8
+Pillow>=9.0

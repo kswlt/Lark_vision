@@ -1,6 +1,10 @@
-# Python 3.8 compatible (also runs on newer 3.x for local testing)
-# Versions verified against PyPI requires-python metadata.
+# =========================================================
+# 核心依赖（Dashboard / Feishu / Flask）
+# 安装：pip install -r backend/requirements.txt
+# 兼容 Python 3.8+（含旧希沃 Win7 环境）与现代 Python 3.11+
+# =========================================================
 Flask==2.3.3
 waitress==3.0.0
 requests==2.31.0
 python-dotenv==1.0.1
+pyyaml>=5.4,<7

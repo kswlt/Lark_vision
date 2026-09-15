@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 工时数据来源与清洗。
 统一输出记录模型：
@@ -10,8 +9,8 @@ import threading
 import time
 from datetime import datetime
 
-from config.feishu_fields import FEISHU_WORKTIME_FIELDS
 from config.duty import get_unchecked_monitor
+from config.feishu_fields import FEISHU_WORKTIME_FIELDS
 
 logger = logging.getLogger("feishu")
 
@@ -68,7 +67,7 @@ def _fetch_all_user_ids(client):
         depts = [d.get("open_department_id") for d in (data.get("items") or [])] or ["0"]
         for did in depts:
             walk(did)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("worktime: 拉取通讯录用户失败: %s", e)
         return []
     with _USER_IDS_LOCK:
@@ -157,7 +156,7 @@ def load_from_attendance(client, start_date, end_date):
                     "need_overtime_result": True,
                 },
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("worktime: 考勤查询批次失败: %s", e)
             continue
         for item in (data.get("user_task_results") or []):
@@ -243,7 +242,7 @@ def load_unchecked_today(client):
                     "need_overtime_result": True,
                 },
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("worktime: 未打卡名单查询失败: %s", e)
             continue
         for item in (data.get("user_task_results") or []):

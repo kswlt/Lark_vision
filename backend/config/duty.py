@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 值日表 & 名单配置加载器。
 
@@ -11,15 +10,23 @@ import os
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # backend/
 _CONFIG = os.path.join(_BASE, "config", "team_roster.json")
+_EXAMPLE = os.path.join(_BASE, "config", "team_roster.example.json")
+
+
+def _roster_path():
+    """优先读真实名单 team_roster.json；不存在时回退示例名单（开源用户开箱可用）。"""
+    if os.path.exists(_CONFIG):
+        return _CONFIG
+    return _EXAMPLE
 
 
 def load_roster():
     """读取 team_roster.json，失败时返回空字典（绝不抛错）。"""
     try:
-        with open(_CONFIG, "r", encoding="utf-8") as f:
+        with open(_roster_path(), encoding="utf-8") as f:
             data = json.load(f)
             return data if isinstance(data, dict) else {}
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 

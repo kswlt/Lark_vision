@@ -33,8 +33,8 @@ def build_mock_worktime(days=35):
             out_hour = (in_hour * 60 + in_min + dur) // 60
             out_min = (in_hour * 60 + in_min + dur) % 60
 
-            cin = "%02d:%02d:%02d" % (in_hour, in_min, random.randint(0, 59))
-            cout = "%02d:%02d:%02d" % (out_hour, out_min, random.randint(0, 59))
+            cin = f"{in_hour:02d}:{in_min:02d}:{random.randint(0, 59):02d}"
+            cout = f"{out_hour:02d}:{out_min:02d}:{random.randint(0, 59):02d}"
 
             # 异常注入（会触发 clean_record 丢弃，不进榜）
             roll = random.random()

@@ -1,0 +1,22 @@
+# ruff 配置（backend 代码质量检查）
+# 说明：
+# - 本机为本地时区单机应用（值日/日期计算按本机日期），忽略 DTZ 时区强制规则
+# - UTF-8 编码声明注释无害，忽略 UP009
+# - 长行（中文标题/字段名）多，line-length 放宽
+[tool.ruff]
+target-version = "py38"
+line-length = 120
+extend-exclude = [".venv", "dist", "node_modules", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "RUF100", "PIE"]
+ignore = [
+    "UP009",          # UTF-8 编码声明（项目统一声明，无害）
+    "DTZ006",         # fromtimestamp 无 tz（本地时区单机应用）
+    "DTZ011",         # date.today()（同上）
+    "E501",           # 行过长（中文任务标题/字段名）
+    "B008",           # 函数参数默认值调用（项目既有风格）
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "PIE"]

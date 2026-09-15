@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 人脸识别补充打卡 -> 飞书同步器。
 
@@ -44,7 +43,7 @@ def scan_local_checkin():
             for name in (data.get("names") or []):
                 if name and d:
                     out.append({"date": d, "name": name})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("scan checkin file %s failed: %s", fn, e)
     return out
 
@@ -68,7 +67,7 @@ def _sheets_read_all(client, token, sheet_id):
     """读取电子表格 A:D 全部 -> set(('date','name'))。"""
     existing = set()
     try:
-        data = client.get("/sheets/v2/spreadsheets/%s/values/%s!A:D" % (token, sheet_id))
+        data = client.get(f"/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A:D")
         vr = data.get("valueRange") or {}
         rows = vr.get("values") or []
         for i, row in enumerate(rows):
@@ -80,7 +79,7 @@ def _sheets_read_all(client, token, sheet_id):
             n = row[1]
             if d and n:
                 existing.add((str(d), str(n)))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("sheets read existing failed: %s", e)
     return existing
 
@@ -88,7 +87,7 @@ def _sheets_read_all(client, token, sheet_id):
 def _sheets_ensure_header(client, token, sheet_id):
     """检查表头，不存在则写入 A1:D1。"""
     try:
-        data = client.get("/sheets/v2/spreadsheets/%s/values/%s!A1:D1" % (token, sheet_id))
+        data = client.get(f"/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A1:D1")
         vr = data.get("valueRange") or {}
         rows = vr.get("values") or []
         first = rows[0] if rows else []
@@ -98,11 +97,11 @@ def _sheets_ensure_header(client, token, sheet_id):
         pass
     try:
         client.put(
-            "/sheets/v2/spreadsheets/%s/values/%s!A1:D1" % (token, sheet_id),
-            {"valueRange": {"range": "%s!A1:D1" % sheet_id, "values": [HEADERS]}},
+            f"/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A1:D1",
+            {"valueRange": {"range": f"{sheet_id}!A1:D1", "values": [HEADERS]}},
         )
         logger.info("sheets header written")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("sheets write header failed: %s", e)
 
 
@@ -112,11 +111,11 @@ def _sheets_append(client, token, sheet_id, rows):
         return 0
     try:
         client.post(
-            "/sheets/v2/spreadsheets/%s/values_append" % token,
-            {"valueRange": {"range": "%s!A:D" % sheet_id, "values": rows}},
+            f"/sheets/v2/spreadsheets/{token}/values_append",
+            {"valueRange": {"range": f"{sheet_id}!A:D", "values": rows}},
         )
         return len(rows)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("sheets append failed: %s", e)
         return 0
 
@@ -153,7 +152,7 @@ def sync_to_sheets(client):
 # 模式 B：多维表格（bitable）— 保留备选
 # ---------------------------------------------------------------------------
 def find_table_id(client, app_token):
-    data = client.get("/bitable/v1/apps/%s/tables?page_size=100" % app_token)
+    data = client.get(f"/bitable/v1/apps/{app_token}/tables?page_size=100")
     for t in (data.get("items") or []):
         if t.get("name") == CHECKIN_TABLE_NAME:
             return t.get("table_id")
@@ -168,7 +167,7 @@ def list_existing_bitable(client, app_token, table_id):
         if page_token:
             params["page_token"] = page_token
         data = client.get(
-            "/bitable/v1/apps/%s/tables/%s/records" % (app_token, table_id), params
+            f"/bitable/v1/apps/{app_token}/tables/{table_id}/records", params
         )
         for rec in (data.get("items") or []):
             f = rec.get("fields") or {}
@@ -193,16 +192,16 @@ def sync_to_bitable(client, app_token):
         table_id = os.environ.get("FEISHU_CHECKIN_TABLE_ID", "").strip() or find_table_id(
             client, app_token
         )
-    except Exception as e:  # noqa: BLE001
-        result["error"] = "查找打卡记录表失败: %s" % e
+    except Exception as e:
+        result["error"] = f"查找打卡记录表失败: {e}"
         return result
     if not table_id:
-        result["error"] = "未找到飞书表「%s」" % CHECKIN_TABLE_NAME
+        result["error"] = f"未找到飞书表「{CHECKIN_TABLE_NAME}」"
         return result
     try:
         existing = list_existing_bitable(client, app_token, table_id)
-    except Exception as e:  # noqa: BLE001
-        result["error"] = "读取已有打卡记录失败: %s" % e
+    except Exception as e:
+        result["error"] = f"读取已有打卡记录失败: {e}"
         return result
     todo = [r for r in rows if (r["date"], r["name"]) not in existing]
     result["skipped"] = len(rows) - len(todo)
@@ -216,12 +215,12 @@ def sync_to_bitable(client, app_token):
         }
         try:
             client.post(
-                "/bitable/v1/apps/%s/tables/%s/records/batch_create" % (app_token, table_id),
+                f"/bitable/v1/apps/{app_token}/tables/{table_id}/records/batch_create",
                 payload,
             )
             result["created"] += len(batch)
-        except Exception as e:  # noqa: BLE001
-            result["error"] = "批量写入失败: %s" % e
+        except Exception as e:
+            result["error"] = f"批量写入失败: {e}"
             break
     return result
 

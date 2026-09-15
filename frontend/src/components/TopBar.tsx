@@ -6,8 +6,6 @@ import { DATA_SOURCE_LABEL } from '../config/constants'
 import PromoVideoPlayer from './PromoVideoPlayer'
 
 const THEME_KEY = 'rm_theme_v1'
-const DAILY_REFRESH_HOUR = 17
-const DAILY_REFRESH_MINUTE = 30
 
 function useTheme(): [boolean, () => void] {
   const [dark, setDark] = useState(() => {
@@ -33,19 +31,9 @@ function useTheme(): [boolean, () => void] {
   return [dark, () => setDark((d) => !d)]
 }
 
-/** 计算下次自动刷新时间（每天 17:30） */
-function getNextRefreshTime(now: Date): Date {
-  const next = new Date(now)
-  next.setHours(DAILY_REFRESH_HOUR, DAILY_REFRESH_MINUTE, 0, 0)
-  if (next <= now) {
-    next.setDate(next.getDate() + 1)
-  }
-  return next
-}
-
-/** 格式化时间为 MM-DD HH:mm */
+/** 格式化时间为 MM-DD HH:mm:ss */
 function formatRefreshTime(d: Date): string {
-  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
 
 const NAV = [
@@ -74,16 +62,15 @@ interface TopBarProps {
   onScaleDown: () => void
 }
 
-/** 顶部导航栏：品牌 + 导航 + 时钟 + 数据源 + 刷新 + 缩放 */
+/** 顶部导航栏：品牌 + 导航 + 时钟 + 数据源 + 刷新 + 缓存提示 + 缩放 */
 export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
-  const { health, loading, refresh, lastRefresh } = useData()
+  const { health, loading, refresh, lastRefresh, stale, meta } = useData()
   const clock = useClock()
   const [dark, toggleDark] = useTheme()
-  const live = health?.dataSource === 'feishu'
   const source = health?.dataSource ?? 'mock'
   const [showPromo, setShowPromo] = useState(false)
-  const nextRefresh = getNextRefreshTime(clock)
   const lastRefreshStr = formatRefreshTime(new Date(lastRefresh))
+  const teamName = meta?.teamName || 'Adam 进度管理系统'
 
   // URL参数自动播放宣传片：?autoplay=promo
   useEffect(() => {
@@ -101,12 +88,12 @@ export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
       <div className="flex items-center gap-2.5 shrink-0 pr-2">
         <img
           src="/logo-team.png"
-          alt="Adam"
+          alt="logo"
           className="h-9 w-9 object-contain drop-shadow-sm"
         />
         <div className="leading-none">
           <div className="text-[14px] font-black tracking-[0.06em] text-gray-100">
-            Adam 进度管理系统
+            {teamName}
           </div>
           <img
             src="/rm-logo.png"
@@ -140,6 +127,20 @@ export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
 
       <div className="flex-1" />
 
+      {/* 数据源 + 缓存提示 */}
+      <span
+        className={`text-[10px] px-2 py-1 rounded border flex items-center gap-1 ${
+          stale
+            ? 'border-amber-500/50 text-amber-400 bg-amber-500/10'
+            : 'border-base-600 text-base-300'
+        }`}
+        title="后端返回最近一次成功缓存（飞书可能不可用）"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${stale ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+        {DATA_SOURCE_LABEL[source] ?? source}
+        {stale && <span className="ml-1">正在显示缓存数据</span>}
+      </span>
+
       {/* 时钟 */}
       <span className="num-mono text-[12px] text-gray-300 flex items-center gap-1 px-2 py-1 rounded border border-base-600">
         <span className="w-1.5 h-1.5 rounded-full bg-accent-bright live-dot" />
@@ -160,18 +161,18 @@ export default function TopBar({ scale, onScaleUp, onScaleDown }: TopBarProps) {
         宣传片
       </button>
 
-      {/* 刷新按钮 + 刷新时间提示 */}
+      {/* 刷新按钮 + 上次刷新时间 */}
       <div className="flex items-center gap-1">
         <button
           onClick={refresh}
           className="flex items-center gap-1.5 px-2 py-1 rounded border border-base-600 text-[10px] text-base-300 hover:text-gray-200 clickable"
-          title={`手动刷新\n上次刷新: ${lastRefreshStr}\n下次自动刷新: ${formatRefreshTime(nextRefresh)}`}
+          title={`手动刷新\n上次刷新: ${lastRefreshStr}`}
         >
           <RefreshCw size={11} className={loading ? 'spin' : ''} />
           刷新
         </button>
         <span className="num-mono text-[9px] text-base-400 hidden xl:inline">
-          下次 {pad2(nextRefresh.getHours())}:{pad2(nextRefresh.getMinutes())}
+          {lastRefreshStr}
         </span>
       </div>
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 从 Task[] 与工时记录聚合出 Dashboard / Groups / Robots / Matrix / Leaderboard / People。
 不维护独立进度字段，全部由任务数据现算，避免数据不一致。

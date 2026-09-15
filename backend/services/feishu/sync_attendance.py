@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 飞书考勤工时数据 -> 飞书电子表格 同步器。
 
@@ -41,7 +40,7 @@ def _sheets_read_existing(client, token, sheet_id):
     """读取电子表格 A:B 已有 (日期, 姓名) -> set"""
     existing = set()
     try:
-        data = client.get("/sheets/v2/spreadsheets/%s/values/%s!A:B" % (token, sheet_id))
+        data = client.get(f"/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A:B")
         vr = data.get("valueRange") or {}
         rows = vr.get("values") or []
         for i, row in enumerate(rows):
@@ -53,7 +52,7 @@ def _sheets_read_existing(client, token, sheet_id):
             n = row[1]
             if d and n:
                 existing.add((str(d), str(n)))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("attendance sync: read existing failed: %s", e)
     return existing
 
@@ -61,7 +60,7 @@ def _sheets_read_existing(client, token, sheet_id):
 def _sheets_ensure_header(client, token, sheet_id):
     """检查表头，不存在则用 values_append 写入（飞书 sheets v2 写入端点兼容）。"""
     try:
-        data = client.get("/sheets/v2/spreadsheets/%s/values/%s!A1:G1" % (token, sheet_id))
+        data = client.get(f"/sheets/v2/spreadsheets/{token}/values/{sheet_id}!A1:G1")
         vr = data.get("valueRange") or {}
         rows = vr.get("values") or []
         first = rows[0] if rows else []
@@ -71,11 +70,11 @@ def _sheets_ensure_header(client, token, sheet_id):
         pass
     try:
         client.post(
-            "/sheets/v2/spreadsheets/%s/values_append" % token,
-            {"valueRange": {"range": "%s!A:G" % sheet_id, "values": [HEADERS]}},
+            f"/sheets/v2/spreadsheets/{token}/values_append",
+            {"valueRange": {"range": f"{sheet_id}!A:G", "values": [HEADERS]}},
         )
         logger.info("attendance sync: header written via values_append")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("attendance sync: write header failed: %s", e)
 
 
@@ -85,11 +84,11 @@ def _sheets_append(client, token, sheet_id, rows):
         return 0
     try:
         client.post(
-            "/sheets/v2/spreadsheets/%s/values_append" % token,
-            {"valueRange": {"range": "%s!A:G" % sheet_id, "values": rows}},
+            f"/sheets/v2/spreadsheets/{token}/values_append",
+            {"valueRange": {"range": f"{sheet_id}!A:G", "values": rows}},
         )
         return len(rows)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("attendance sync: append failed: %s", e)
         return 0
 
@@ -114,8 +113,8 @@ def sync_attendance_to_sheets(client, days=30):
 
     try:
         records = load_from_attendance(client, start, end)
-    except Exception as e:  # noqa: BLE001
-        result["error"] = "读取飞书考勤失败: %s" % e
+    except Exception as e:
+        result["error"] = f"读取飞书考勤失败: {e}"
         logger.warning(result["error"])
         return result
 

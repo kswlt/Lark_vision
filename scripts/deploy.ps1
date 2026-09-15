@@ -1,57 +1,61 @@
-﻿# ============================================================
+# ============================================================
 # 远程自动部署脚本（在开发电脑运行）
-# 前置条件：开发电脑能 ssh/scp 到 192.168.53.117（Win32-OpenSSH）
+# 前置条件：
+#   1. 目标机器已安装 Win32-OpenSSH，且本机已配置 SSH Key 免密登录：
+#        ssh-copy-id Administrator@<目标IP>   （或手动把公钥加入 authorized_keys）
+#   2. 首次连接请先手动执行一次 ssh，接受目标主机指纹（本脚本不关闭主机指纹校验）
 # 用法：
-#   .\scripts\deploy.ps1 -Host 192.168.53.117 -User Administrator -Password xxx
+#   .\scripts\deploy.ps1 -Host 192.168.53.117 -User Administrator
+#   .\scripts\deploy.ps1 -Host 192.168.53.117 -User Administrator -Key C:\Users\me\.ssh\rm_deploy_key
 # 流程：
 #   1. 前端 npm run build
-#   2. 上传 dist 与 backend/scripts 到 C:\RoboMasterDashboard
-#   3. 远程重启 Waitress
-#   4. 请求 /api/health 验证 HTTP 200
+#   2. 上传 dist 与 backend 到 <RemoteDir>
+#   3. 远端安装依赖（如未装）
+#   4. 通过 PID 文件优雅停止旧进程，再启动新进程（不会误杀系统其它 python）
+#   5. 请求 /api/health 验证 HTTP 200
+# 安全说明：脚本不使用明文密码、不使用 Invoke-Expression、不关闭主机指纹校验。
 # ============================================================
 param(
   [string]$Host = "192.168.53.117",
   [string]$User = "Administrator",
-  [string]$Password = "",
+  [string]$Key = "",
   [string]$RemoteDir = "C:\RoboMasterDashboard"
 )
 
 $root = Split-Path -Parent $PSScriptRoot
 $ErrorActionPreference = "Stop"
 
+function Resolve-Ssh {
+  if ($Key) {
+    if (-not (Test-Path $Key)) { throw "SSH Key 不存在: $Key" }
+    return "-i `"$Key`""
+  }
+  return ""
+}
+
 function Invoke-Remote {
   param([string]$Cmd)
-  if ($Password) {
-    # 用 plink（PuTTY）免交互传密码；若没有 plink，退回 ssh（需已配置免密）
-    $plink = Get-Command plink -ErrorAction SilentlyContinue
-    if ($plink) {
-      $script = "echo y | plink -ssh $User@$Host -pw $Password `"$Cmd`""
-      Invoke-Expression $script
-      return
-    }
+  $sshArgs = Resolve-Ssh
+  # BatchMode=yes：绝不交互输入密码（未配置免密时直接失败并给出提示）
+  $result = ssh -o BatchMode=yes -o ConnectTimeout=10 $sshArgs "$User@$Host" $Cmd 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] 远程命令失败: $Cmd"
+    Write-Host "       请确认已配置 SSH Key 免密登录（ssh-copy-id $User@$Host），且主机指纹已接受。"
+    throw "远程命令失败"
   }
-  ssh -o StrictHostKeyChecking=no "$User@$Host" $Cmd
-  if ($LASTEXITCODE -ne 0) { throw "远程命令失败: $Cmd" }
+  return $result
 }
 
 function Invoke-Upload {
   param([string]$Local, [string]$Remote)
-  if ($Password -and (Get-Command pscp -ErrorAction SilentlyContinue)) {
-    Invoke-Expression "pscp -pw $Password -r $Local $User@$Host`:$Remote"
-  } else {
-    scp -r $Local "$User@$Host`:$Remote"
-    if ($LASTEXITCODE -ne 0) { throw "上传失败: $Local" }
-  }
+  $sshArgs = Resolve-Ssh
+  scp -o BatchMode=yes $sshArgs -r $Local "$User@$Host`:$Remote"
+  if ($LASTEXITCODE -ne 0) { throw "上传失败: $Local" }
 }
 
 # 0. 检查远程可达
 Write-Host "==> 检查 SSH 可达性"
-ssh -o BatchMode=yes -o ConnectTimeout=8 "$User@$Host" "ver" 2>$null
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "[FAIL] SSH 不可用。请先解决远程访问（安装 Win32-OpenSSH 或提供密码），"
-  Write-Host "       或改用离线部署：运行 .\scripts\build_bundle.ps1 生成部署包，U盘拷贝到希沃执行 setup_win7.bat。"
-  exit 1
-}
+$null = Invoke-Remote "ver"
 
 # 1. 前端构建
 Write-Host "==> npm run build"
@@ -63,21 +67,19 @@ if (Test-Path (Join-Path $root "dist")) { Remove-Item -Recurse -Force (Join-Path
 Copy-Item -Recurse (Join-Path $root "frontend\dist") (Join-Path $root "dist")
 
 # 2. 确保远端目录
-Invoke-Remote "if not exist $RemoteDir mkdir $RemoteDir"
+$null = Invoke-Remote "if not exist $RemoteDir mkdir $RemoteDir"
 
 # 3. 上传
 Write-Host "==> 上传 dist"
 Invoke-Upload (Join-Path $root "dist") "$RemoteDir\dist"
 Write-Host "==> 上传 backend"
 Invoke-Upload (Join-Path $root "backend") "$RemoteDir\backend"
-Write-Host "==> 上传 scripts"
-Invoke-Upload (Join-Path $root "scripts") "$RemoteDir\scripts"
 
-# 4. 远端安装依赖 + 重启
+# 4. 远端安装依赖 + 优雅重启（PID 文件方案，不 taskkill 全部 python）
 Write-Host "==> 远端安装依赖（如未装）"
-Invoke-Remote "cd /d $RemoteDir && python -m pip install -q -r backend\requirements.txt 2>nul || echo skip"
-Write-Host "==> 重启服务"
-Invoke-Remote "taskkill /f /im python.exe >nul 2>nul & timeout /t 2 /nobreak >nul & start /min `"RoboMasterDashboard`" $RemoteDir\scripts\start.bat"
+$null = Invoke-Remote "cd /d $RemoteDir && python -m pip install -q -r backend\requirements.txt 2>nul || echo skip"
+Write-Host "==> 优雅重启服务"
+$null = Invoke-Remote "cd /d $RemoteDir && scripts\stop.bat & timeout /t 2 /nobreak >nul & cmd /c scripts\start.bat"
 
 # 5. 健康检查
 Start-Sleep -Seconds 5
@@ -92,4 +94,4 @@ for ($i = 0; $i -lt 6; $i++) {
     Start-Sleep -Seconds 3
   }
 }
-if (-not $ok) { Write-Host "[FAIL] 服务未就绪，请检查远端日志 C:\RoboMasterDashboard\logs\app.log" }
+if (-not $ok) { Write-Host "[FAIL] 服务未就绪，请检查远端日志 $RemoteDir\logs\app.log" }

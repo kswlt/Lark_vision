@@ -1,0 +1,16 @@
+{
+  "_说明": "【示例队伍名单配置】复制为 team_roster.json 后编辑人名即可，保存后无需重启（接口自动热更新）。\n- duty_roster：值日轮值名单，按顺序每天一人循环。\n- duty_start：轮值起始日期（该日为 duty_roster 第 1 人）。\n- unchecked_monitor：未打卡监控名单，首页滚动只提醒名单内成员（飞书考勤返回的其它人会被忽略）。\n注意：team_roster.json 包含真实成员信息，请勿提交到 Git。",
+  "duty_start": "2026-09-01",
+  "duty_roster": [
+    "张三",
+    "李四",
+    "王五",
+    "赵六"
+  ],
+  "unchecked_monitor": [
+    "张三",
+    "李四",
+    "王五",
+    "赵六"
+  ]
+}

@@ -1,18 +1,22 @@
 @echo off
 REM ============================================================
-REM  RoboMaster Dashboard - Ï£ÎÖ Win7 Ò»¼ü°²×°/Æô¶¯½Å±¾
-REM  ÓÃ·¨£º°ÑÕû¸öÏîÄ¿·Åµ½ C:\RoboMasterDashboard ºó£¬ÓÒ¼ü"ÒÔ¹ÜÀíÔ±Éí·ÝÔËÐÐ"
-REM  ¹¦ÄÜ£º¼ì²â Python -> ×°ÒÀÀµ -> ¼ÇÂ¼ Python Â·¾¶ -> ·À»ðÇ½ -> ¿ª»ú×ÔÆô -> Æô¶¯
+REM  RoboMaster Dashboard - Windows 7 / Legacy ä¸€é”®å®‰è£…/å¯åŠ¨è„šæœ¬
+REM  ç”¨æ³•ï¼šæŠŠé¡¹ç›®æ”¾åˆ°ä»»æ„ç›®å½•ï¼ˆå»ºè®® C:\RoboMasterDashboardï¼‰ï¼Œ
+REM        å³é”®ä»¥"ç®¡ç†å‘˜èº«ä»½è¿è¡Œ"æœ¬è„šæœ¬ã€‚
+REM  åŠŸèƒ½ï¼šæ£€æµ‹ Python -> å®‰è£…ä¾èµ– -> è®°å½• Python è·¯å¾„ -> é˜²ç«å¢™ ->
+REM        æ³¨å†Œè®¡åˆ’ä»»åŠ¡ï¼ˆå¼€æœºè‡ªå¯ï¼‰-> å¯åŠ¨
 REM ============================================================
 setlocal enabledelayedexpansion
-cd /d C:\RoboMasterDashboard
+cd /d %~dp0..
+
+set "ROOT=%CD%"
 
 echo ========================================
 echo   RoboMaster Dashboard - Win7 Setup
 echo ========================================
 echo.
 
-REM ---- 1. ¼ì²â Python£¨Win7 ÉÏ³£¼û C:\Python38£©----
+REM ---- 1. æ£€æµ‹ Pythonï¼ˆWin7 å¸¸è§è·¯å¾„ä¼˜å…ˆï¼‰----
 set "PY="
 where python >nul 2>nul && set "PY=python"
 if not defined PY (
@@ -22,8 +26,8 @@ if not defined PY (
   if exist "C:\Python39\python.exe" set "PY=C:\Python39\python.exe"
 )
 if not defined PY (
-  echo [ERROR] Î´ÕÒµ½ Python 3.8¡£ÇëÏÈ°²×° Python 3.8.x£¬²¢ÔÚ°²×°Ê±¹´Ñ¡ "Add python.exe to PATH"¡£
-  echo         °²×°°ü: https://www.python.org/downloads/release/python-3810/
+  echo [ERROR] æœªæ‰¾åˆ° Python 3.8/3.9ã€‚è¯·å…ˆå®‰è£… Python 3.8.xï¼Œå®‰è£…æ—¶å‹¾é€‰ "Add python.exe to PATH"ã€‚
+  echo         ä¸‹è½½: https://www.python.org/downloads/release/python-3810/
   pause
   exit /b 1
 )
@@ -31,43 +35,43 @@ echo [1/5] Python: %PY%
 "%PY%" --version
 
 echo.
-echo [2/5] °²×°ºó¶ËÒÀÀµ ...
+echo [2/5] å®‰è£…æ ¸å¿ƒä¾èµ– ...
 "%PY%" -m pip install --disable-pip-version-check -r backend\requirements.txt
 if errorlevel 1 (
-  echo [WARN] ÒÀÀµ°²×°Ê§°Ü£¬Çë¼ì²éÍøÂç¡£¿ÉÉÔºóÊÖ¶¯Ö´ÐÐ:
+  echo [WARN] ä¾èµ–å®‰è£…å¤±è´¥ï¼ˆå¯èƒ½ç½‘ç»œé—®é¢˜ï¼‰ã€‚å¯ç¨åŽæ‰‹åŠ¨æ‰§è¡Œ:
   echo        %PY% -m pip install -r backend\requirements.txt
 )
 
 echo.
-echo [3/5] ¼ÇÂ¼ Python Â·¾¶µ½ config\python.cmd ...
+echo [3/5] è®°å½• Python è·¯å¾„åˆ° config\python.cmd ...
 if not exist config mkdir config
 > config\python.cmd echo set PYTHON=%PY%
 type config\python.cmd
 
 echo.
-echo [4/5] ·À»ðÇ½¹æÔò£¨Ö»·ÅÐÐ TCP 8080£¬²»¹Ø·À»ðÇ½£©...
+echo [4/5] é˜²ç«å¢™è§„åˆ™ï¼ˆä»…å¼€æ”¾ TCP 8080ï¼Œä¸å…³é—­ç³»ç»Ÿé˜²ç«å¢™ï¼‰...
 call scripts\firewall_win7.bat
 
 echo.
-echo [5/5] ¿ª»ú×ÔÆô£¨¼Æ»®ÈÎÎñ ONSTART, SYSTEM Éí·Ý£¬ÎÞÐèÃÜÂë£©...
+echo [5/5] æ³¨å†Œå¼€æœºè‡ªå¯è®¡åˆ’ä»»åŠ¡ï¼ˆONSTART, SYSTEM æƒé™ï¼‰...
 schtasks /query /tn "RoboMasterDashboard" >nul 2>nul
 if errorlevel 1 (
-  schtasks /create /tn "RoboMasterDashboard" /tr "C:\RoboMasterDashboard\scripts\start.bat" /sc onstart /ru SYSTEM /rl highest /f
-  echo [OK] ÒÑ´´½¨¿ª»ú×ÔÆôÈÎÎñ
+  schtasks /create /tn "RoboMasterDashboard" /tr "%ROOT%\scripts\start.bat" /sc onstart /ru SYSTEM /rl highest /f
+  echo [OK] å·²åˆ›å»ºè®¡åˆ’ä»»åŠ¡
 ) else (
-  echo [OK] ×ÔÆôÈÎÎñÒÑ´æÔÚ
+  echo [OK] è®¡åˆ’ä»»åŠ¡å·²å­˜åœ¨
 )
 
 echo.
-echo ÕýÔÚÆô¶¯·þÎñ ...
-start "RoboMasterDashboard" /min call scripts\start.bat
+echo æ­£åœ¨å¯åŠ¨ ...
+call scripts\start.bat
 timeout /t 3 /nobreak >nul
 
 echo.
 echo ========================================
-echo   ²¿ÊðÍê³É£¡
-echo   ±¾»ú·ÃÎÊ:  http://localhost:8080
-echo   ¾ÖÓòÍø:    http://192.168.53.117:8080
-echo   £¨Èô·ÃÎÊ 192.168.53.117:8080 ²»Í¨£¬¼ì²é·À»ðÇ½/¾ÖÓòÍø£©
+echo   å®‰è£…å®Œæˆï¼
+echo   æœ¬æœºè®¿é—®:   http://localhost:8080
+echo   å±€åŸŸç½‘è®¿é—®: http://<æœ¬æœºIP>:8080 ï¼ˆéœ€ç¡®ä¿é˜²ç«å¢™/è·¯ç”±å™¨æ”¾è¡Œï¼‰
 echo ========================================
 pause
+endlocal

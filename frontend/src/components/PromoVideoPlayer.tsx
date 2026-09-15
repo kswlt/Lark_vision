@@ -84,6 +84,19 @@ export default function PromoVideoPlayer({ onClose }: PromoVideoPlayerProps) {
     }
   }, [])
 
+  // 播放视频（带声音）
+  const playVideo = useCallback(() => {
+    if (videoRef.current) {
+      videoRef.current.play().then(() => {
+        setIsPlaying(true)
+        setAutoPlayFailed(false)
+      }).catch(() => {
+        setAutoPlayFailed(true)
+        setIsPlaying(false)
+      })
+    }
+  }, [])
+
   // 键盘快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -104,20 +117,7 @@ export default function PromoVideoPlayer({ onClose }: PromoVideoPlayerProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, playNext])
-
-  // 播放视频（带声音）
-  const playVideo = useCallback(() => {
-    if (videoRef.current) {
-      videoRef.current.play().then(() => {
-        setIsPlaying(true)
-        setAutoPlayFailed(false)
-      }).catch(() => {
-        setAutoPlayFailed(true)
-        setIsPlaying(false)
-      })
-    }
-  }, [])
+  }, [onClose, playNext, playVideo])
 
   // 切换视频后自动播放（带声音，因为是用户点击按钮触发的）
   useEffect(() => {

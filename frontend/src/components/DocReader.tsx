@@ -85,7 +85,7 @@ export default function DocReader() {
       .catch(() => { if (!cancelled) setPreviewContent('') })
       .finally(() => { if (!cancelled) setPreviewLoading(false) })
     return () => { cancelled = true }
-  }, [currentDoc?.token])
+  }, [currentDoc?.token, currentDoc])
 
   async function openDoc(doc: DocFile) {
     setSelected(doc)

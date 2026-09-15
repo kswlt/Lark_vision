@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-数据源统一入口：
-- 飞书配置完整 -> 真实数据（任务表 + 可选工时表/考勤）
-- 未配置 -> 完整 Mock 模式
+数据源统一入口（显式模式，绝不自动回退 Mock）：
+- DATA_SOURCE=mock  -> 演示数据（开发/开源演示，不连飞书）
+- DATA_SOURCE=feishu（默认）-> 真实飞书数据
+  - 飞书请求失败：返回最近一次成功缓存并标记 stale/degraded；
+  - 从未成功过：返回明确空态/错误，绝不偷偷生成 Mock 数据。
 带任务 45s / 工时 5min 缓存，头像 12h 缓存。
 """
 import logging
 import os
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+from config.duty import get_duty_roster, get_duty_start
 from data.mock_tasks import build_mock_tasks
 from data.mock_worktime import build_mock_worktime
+from services.face_checkin import checked_name_set
 from services.feishu import FeishuClient, UserCache, list_records
 from services.feishu.normalize import normalize_task
 from services.feishu.worktime import (
@@ -21,8 +25,6 @@ from services.feishu.worktime import (
     load_from_bitable,
     load_unchecked_today,
 )
-from services.face_checkin import checked_name_set
-from config.duty import get_duty_roster, get_duty_start
 
 logger = logging.getLogger("sources")
 
@@ -31,8 +33,17 @@ WORKTIME_TTL = 300
 UNCHECKED_TTL = 60
 DUTY_TTL = 120
 
+# 显式数据源模式：mock | feishu（默认 feishu，只有显式设置 mock 才使用演示数据）
+DATA_SOURCE = os.environ.get("DATA_SOURCE", "feishu").strip().lower()
+if DATA_SOURCE not in ("feishu", "mock"):
+    DATA_SOURCE = "feishu"
 
-class DataStore(object):
+
+class DataSourceError(RuntimeError):
+    """飞书数据源错误（不降级为 Mock 时抛出，供调用方决定 stale 回退）。"""
+
+
+class DataStore:
     def __init__(self):
         self.app_id = os.environ.get("FEISHU_APP_ID", "")
         self.app_secret = os.environ.get("FEISHU_APP_SECRET", "")
@@ -41,6 +52,7 @@ class DataStore(object):
         self.feishu_configured = bool(
             self.app_id and self.app_secret and self.app_token and self.table_id
         )
+        self._data_source = DATA_SOURCE
         self.client = None
         self.users = None
         if self.feishu_configured:
@@ -55,6 +67,16 @@ class DataStore(object):
         self._unchecked_at = 0.0
         self._lock = threading.Lock()
         self._refresh_lock = threading.Lock()  # 单飞：同一时刻只允许一个线程刷新飞书
+        self._feishu_ok = True          # 最近一次飞书请求是否成功（初始假设可用）
+        self._last_success_sync = 0.0   # 最近一次成功刷新时间戳
+
+    def _mark_success(self):
+        self._feishu_ok = True
+        self._last_success_sync = time.time()
+
+    def _mark_failure(self, what, exc):
+        self._feishu_ok = False
+        logger.error("%s 失败: %s", what, exc)
 
     def _cached_or_refresh(self, state_name, ttl, loader):
         """
@@ -62,6 +84,7 @@ class DataStore(object):
         - 缓存新鲜 -> 直接返回
         - 缓存过期 -> 只有一个线程真正拉飞书，其余请求立即返回旧缓存（不阻塞、不重复打飞书）
         - 无旧缓存   -> 等待刷新线程完成后返回
+        loader 抛 DataSourceError 时向上传播（由调用方决定 stale 回退）。
         """
         now = time.time()
         with self._lock:
@@ -96,24 +119,68 @@ class DataStore(object):
                     return cur
         with self._lock:
             cur = getattr(self, state_name)
-            return cur if cur is not None else []
+            if cur is not None:
+                return cur
+        raise DataSourceError("飞书数据源尚未取得任何有效数据（冷启动失败）")
 
     @property
     def data_source(self):
-        return "feishu" if self.feishu_configured else "mock"
+        return self._data_source
+
+    def health_status(self):
+        """返回健康状态：data_source / feishu / last_success_sync / cache_age / stale。"""
+        now = time.time()
+        if self._tasks_at:
+            cache_age = int(now - self._tasks_at)
+            stale = cache_age > TASKS_TTL or not self._feishu_ok
+        else:
+            cache_age = None
+            stale = True
+        if self.data_source == "mock":
+            # mock 是显式数据源（演示/开发），视为正常而非故障，不标记 stale
+            feishu = "ok"
+            status = "ok"
+            stale = False
+            cache_age = None
+        else:
+            feishu = "ok" if (self._feishu_ok and not stale) else "degraded"
+            status = "ok" if feishu == "ok" else "degraded"
+        return {
+            "status": status,
+            "data_source": self.data_source,
+            "feishu": feishu,
+            "last_success_sync": (
+                datetime.fromtimestamp(self._last_success_sync).isoformat(timespec="seconds")
+                if self._last_success_sync else None
+            ),
+            "cache_age": cache_age,
+            "stale": stale,
+        }
 
     # ---------------- tasks ----------------
     def get_tasks(self):
-        return self._cached_or_refresh("_tasks", TASKS_TTL, self._load_tasks)
+        try:
+            return self._cached_or_refresh("_tasks", TASKS_TTL, self._load_tasks)
+        except DataSourceError:
+            # 飞书不可用：有最近成功缓存则返回（health 会标 degraded），无缓存返回明确空态
+            with self._lock:
+                cached = self._tasks
+            return cached if cached is not None else []
 
     def _load_tasks(self):
-        if not self.feishu_configured:
+        if self.data_source == "mock":
             return build_mock_tasks()
+        if not self.feishu_configured:
+            raise DataSourceError(
+                "DATA_SOURCE=feishu 但未配置 FEISHU_APP_ID / FEISHU_APP_SECRET / "
+                "FEISHU_APP_TOKEN / FEISHU_TABLE_ID（请复制 backend/.env.example 为 backend/.env）"
+            )
         try:
             records = list_records(self.client, self.app_token, self.table_id)
-        except Exception as e:  # noqa: BLE001
-            logger.error("飞书任务表读取失败，回退 Mock: %s", e)
-            return build_mock_tasks()
+            self._mark_success()
+        except Exception as e:
+            self._mark_failure("飞书任务表", e)
+            raise DataSourceError(f"飞书任务表读取失败: {e}") from e
         tasks = [normalize_task(r) for r in records if r.get("fields")]
         tasks = [t for t in tasks if t.get("title")]
         # 头像/姓名补齐（12h 缓存）
@@ -141,7 +208,7 @@ class DataStore(object):
                 g = t.get("group") or "未指定"
                 p = prefix_map.get(g, "TSK")
                 counters[p] = counters.get(p, 0) + 1
-                t["id"] = "%s-%03d" % (p, counters[p])
+                t["id"] = f"{p}-{counters[p]:03d}"
 
     # ---------------- worktime ----------------
     def get_worktime_records(self):
@@ -161,8 +228,10 @@ class DataStore(object):
                 try:
                     recs = load_from_bitable(self.client, wt_token, wt_table)
                     if recs:
+                        self._mark_success()
                         return self._enrich_avatars(recs)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
+                    self._mark_failure("工时表", e)
                     logger.warning("工时表读取失败: %s", e)
         elif source == "attendance":
             if self.client:
@@ -172,13 +241,15 @@ class DataStore(object):
                     start = (today - timedelta(days=29)).isoformat()
                     recs = load_from_attendance(self.client, start, today.isoformat())
                     if recs:
+                        self._mark_success()
                         return self._enrich_avatars(recs)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
+                    self._mark_failure("考勤接口", e)
                     logger.warning("考勤接口读取失败: %s", e)
         # 未配置或读取失败：
-        #   已接入飞书（真实系统）-> 返回空，劳模榜显示"暂无打卡数据"，不伪造数据
-        #   纯 Mock 模式 -> 返回演示工时
-        if self.feishu_configured:
+        #   显式 feishu（真实系统）-> 返回空，劳模榜显示"暂无打卡数据"，不伪造数据
+        #   显式 mock -> 返回演示工时
+        if self.data_source == "feishu":
             logger.info("工时数据源未就绪，劳模榜返回空")
             return []
         return build_mock_worktime()
@@ -197,9 +268,10 @@ class DataStore(object):
     # ---------------- 值日表 ----------------
     def get_duty(self):
         """按名单轮值生成今日 + 未来 6 天（共 7 天）值日安排（名单热读，编辑即时生效）。"""
-        from datetime import date, timedelta
-
         roster = get_duty_roster()
+        if not roster:
+            logger.warning("值日名单为空（duty.py / duty.yaml 未配置），返回空值日表")
+            return []
         try:
             start = date.fromisoformat(get_duty_start())
         except ValueError:
@@ -225,14 +297,14 @@ class DataStore(object):
             if self.feishu_configured and self.client:
                 try:
                     names = load_unchecked_today(self.client)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.warning("未打卡名单获取失败: %s", e)
             # 已通过摄像头人脸识别打卡的成员，从未打卡名单中扣减
             try:
                 checked = checked_name_set()
                 if checked:
                     names = [n for n in names if n not in checked]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("人脸打卡扣减失败: %s", e)
             return names
 

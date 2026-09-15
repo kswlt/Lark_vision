@@ -1,259 +1,333 @@
-# RoboMaster Team Adam · 进度管理 Web 系统（RM CONTROL）
+# RoboMaster Team Dashboard (Lark_vision)
 
-RoboMaster 战队 Adam 的进度管理控制台。运行在实验室希沃白板（Windows 7）上，
-用于白板长期展示：谁在做什么、哪些任务延期、哪些重要紧急、哪些久未更新、
-各技术组最近在干什么、比赛节点还剩多少时间、谁本周投入时间最多。
+> RoboMaster Team Dashboard powered by Feishu/Lark —— 面向 RoboMaster 战队实验室的
+> 进度管理大屏：任务看板、组别/兵种统计、工时劳模榜、值日表、摄像头人脸签到。
 
-- **本机访问**：http://localhost:8080
-- **局域网（希沃）**：http://192.168.53.117:8080
+![dashboard](docs/screenshots/dashboard.png)
+
+本项目是一个**轻量、易部署、Windows 可运行**的战队 Dashboard：后端 Flask + 前端 React
+静态站。数据源是飞书多维表格（任务）、飞书考勤/工时表（劳模榜）与飞书通讯录（头像），
+可选的工业相机 + 人脸识别用于战队成员签到。
+
+其他 RoboMaster 队伍 clone 后，**主要只需要修改两份配置**（`backend/.env` 与
+`backend/config/team.yaml`）即可运行，无需修改源代码。
 
 ---
 
-## 一、整体架构
+## 目录
+
+- [主要功能](#主要功能)
+- [架构](#架构)
+- [快速启动（Quick Start）](#快速启动quick-start)
+- [飞书配置](#飞书配置)
+- [队伍配置 team.yaml](#队伍配置-teamyaml)
+- [摄像头可选功能](#摄像头可选功能)
+- [开发方式](#开发方式)
+- [部署方式](#部署方式)
+- [FAQ](#faq)
+- [Legacy：Windows 7 部署](#legacywindows-7-部署)
+- [License](#license)
+
+---
+
+## 主要功能
+
+- **任务看板（Dashboard）**：任务总数/超紧急/重要紧急统计、优先级矩阵、趋势图、赛季时间轴。
+- **任务页**：按剩余时间排序的进行中任务，截止日期越近红色越深、闪烁越快，逾期加重提示。
+- **组别 / 兵种页**：按队伍配置聚合统计（组别/兵种可完全自定义）。
+- **成员页**：成员工时排行、在办任务。
+- **劳模榜**：工时 + 点赞加权排行（点赞权重可配置），总工作时长统计。
+- **值日表**：按名单轮值生成今日 + 未来 6 天。
+- **今日历史文档**：随机抽取飞书云盘文档预览（只读，不编辑不删除）。
+- **摄像头人脸签到**（可选）：YuNet 检测 + SFace 深度特征识别，支持陌生人拒识、
+  低频识别、多帧确认、身份缓存；签到结果同步到飞书。
+- **宣传片循环播放**：首页一键全屏循环播放宣传片（双击退出），支持深色模式、防烧屏像素偏移。
+
+---
+
+## 架构
 
 ```
-浏览器（希沃/手机/笔记本）
+浏览器（希沃大屏 / 笔记本 / 手机）
       │
       ▼
-   Waitress（Win7, TCP 8080）
-      ├── /        → React 静态站点（frontend 构建产物 dist/）
+  Waitress (TCP 8080, 生产 WSGI)
+      ├── /        → React 静态站点（frontend 构建产物 backend/dist/）
       └── /api/*   → Flask API
                         │
                         ├── 飞书多维表格（任务数据，唯一 Source of Truth）
+                        ├── 飞书考勤/工时表（劳模榜，可选）
                         ├── 飞书通讯录（人员头像，12h 缓存）
-                        └── 飞书工时/考勤（劳模榜，可选）
+                        ├── 飞书云盘（今日文档，只读）
+                        └── 工业相机 + 人脸识别（可选，签到）
 ```
 
-**为什么 Win7 用 React 静态 + Flask：**
-- 希沃是比赛现场设备，稳定优先，不升级 Windows、不装 Docker/WSL2/现代 Node。
-- React + Vite 的构建在开发电脑完成，生成 `dist/`，Win7 只需要 Python 3.8 即可运行网页服务。
-- 生产服务用 **Waitress**（生产级 WSGI 服务器），不用 Flask 自带开发服务器。
-
----
-
-## 二、目录结构
-
 ```
-C:\RoboMasterDashboard
-├─ backend\                 Flask 后端（在希沃上运行）
-│  ├─ app.py                入口：/api/* + 静态站点 + Waitress 启动
-│  ├─ requirements.txt      依赖（已锁定兼容 Win7 + Python 3.8）
-│  ├─ config\feishu_fields.py   飞书字段映射、受控词表（视觉→算法、英雄→重装、通用→无）
-│  ├─ data\mock_tasks.py    完整 Mock 任务数据（飞书未配置时使用）
-│  ├─ data\mock_worktime.py Mock 工时数据（含异常样例）
-│  ├─ services\
-│  │  ├─ aggregates.py      Dashboard/Groups/Robots/Matrix/Leaderboard/People 聚合
-│  │  ├─ sources.py         数据源选择（飞书/ Mock）+ 缓存
-│  │  └─ feishu\            token / client / bitable / users / normalize / worktime
-│  └─ .env                  飞书配置（不入 Git，自行填写）
-├─ frontend\                React + TypeScript 源码（开发电脑，不上运行）
-├─ dist\                    Vite production build（Flask 直接伺服）
-├─ config\                  运行时配置（如 python.cmd，由 setup 生成）
-├─ logs\                    app.log / error.log
-├─ scripts\
-│  ├─ setup_win7.bat        希沃一键安装：装依赖/防火墙/开机自启/启动
-│  ├─ start.bat / stop.bat  启停
-│  ├─ firewall_win7.bat     防火墙最小规则（只放行 TCP 8080）
-│  ├─ build_bundle.ps1      生成本地部署包 zip（离线/U盘）
-│  └─ deploy.ps1            远程自动部署（需 SSH）
-└─ README.md
+repo/
+├─ backend/                  Flask 后端
+│  ├─ app.py                 入口：/api/* + 静态站点 + Waitress 启动
+│  ├─ requirements.txt       核心依赖（Dashboard / 飞书 / Flask）
+│  ├─ requirements-camera.txt 摄像头/人脸识别（可选依赖）
+│  ├─ .env.example           环境变量模板（复制为 .env）
+│  ├─ config/
+│  │  ├─ team.example.yaml   队伍配置模板（组别/兵种/别名，复制为 team.yaml）
+│  │  ├─ duty.py             值日名单/起始日（或 duty.yaml）
+│  │  ├─ featured_docs_example.py  今日文档示例（真实 featured_docs.py 不入库）
+│  │  └─ ...
+│  ├─ services/              数据源聚合（sources）、飞书 client、工时、签到同步
+│  ├─ integrations/camera/   摄像头模块（采集/预览/识别/人脸库，可选）
+│  ├─ data/                  Mock 演示数据（任务/工时）
+│  └─ tests/                 后端测试（pytest）
+├─ frontend/                 React + Vite + TypeScript
+│  └─ src/                   api client / store / 页面 / 组件
+├─ scripts/                  启动、部署脚本（PID 文件方案，不杀全部 python）
+├─ examples/deployment/      实验室特定部署示例（虚构 IP）
+└─ docs/screenshots/         截图
 ```
 
 ---
 
-## 三、本地前端开发（开发电脑）
+## 快速启动（Quick Start）
+
+环境要求：**Python 3.11+**（3.8 也可，见 [Legacy](#legacywindows-7-部署)）、**Node.js LTS**（仅构建前端时需要）。
 
 ```bash
-cd frontend
-npm install
-npm run dev          # http://localhost:5173 （/api 代理到 :5000）
-npm run build        # 产出 frontend/dist
-```
+git clone https://github.com/kswlt/Lark_vision.git
+cd Lark_vision
 
-- 关键配置 `frontend/src/config/season.ts`：赛季节点日期（完整形态/联盟赛/区域赛），只改这里。
-- 关键配置 `frontend/src/config/constants.ts`：组别/兵种/优先级。
-
-## 四、后端开发/测试（开发电脑）
-
-```bash
-cd backend
+# ---------- 后端 ----------
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python app.py --dev      # Flask dev server，http://localhost:5000
+# Windows: .venv\Scripts\activate
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+
+cp backend/.env.example backend/.env        # Windows: copy backend\.env.example backend\.env
+cp backend/config/team.example.yaml backend/config/team.yaml
+
+# 先用 Mock 数据跑通（不需要任何飞书账号）：
+DATA_SOURCE=mock python backend/app.py
+# 浏览器打开 http://localhost:8080
+
+# ---------- （可选）前端重新构建 ----------
+cd frontend
+npm ci --legacy-peer-deps
+npm run build            # 产物输出到 backend/dist/
+cd ..
 ```
 
-接口验证：
+> 也可以不构建前端：仓库的 `backend/dist/` 已有可直接运行的构建产物。
+> 首次演示建议 `DATA_SOURCE=mock`，确认页面正常后再切换 `DATA_SOURCE=feishu` 接真实数据。
+
+---
+
+## 飞书配置
+
+1. 在 [飞书开放平台](https://open.feishu.cn/app) 创建企业自建应用，开通权限：
+   - `多维表格：查看`（bitable:app:readonly）
+   - `通讯录：获取用户基本信息`（contact:user.base:readonly）
+   - （劳模榜需要时）`考勤：导出打卡数据` 或 多维表格工时表权限
+   - （今日文档需要时）云文档只读权限
+2. 获取 `App ID` / `App Secret`，以及任务多维表格的 `App Token` / `Table ID`。
+3. 填入 `backend/.env`（**不要提交 .env 到 Git**）：
+
+```dotenv
+DATA_SOURCE=feishu
+FEISHU_APP_ID=cli_xxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxx
+FEISHU_APP_TOKEN=xxxxxxxxxxxxxx
+FEISHU_TABLE_ID=tblxxxxxxxx
+FEISHU_WORKTIME_SOURCE=mock   # bitable | attendance | mock
+ADMIN_TOKEN=change-me-strong-random-token
+```
+
+4. 重启后端。访问 `http://localhost:8080/api/health` 确认：
+
+```json
+{
+  "status": "ok",
+  "data_source": "feishu",
+  "feishu": "ok",
+  "last_success_sync": "2026-09-15T10:00:00",
+  "cache_age": 12,
+  "stale": false
+}
+```
+
+### 数据源模式（重要）
+
+- `DATA_SOURCE=feishu`（默认）：连接真实飞书。**飞书请求失败时返回最近一次成功缓存并标记
+  `stale: true` / `status: degraded`**；从未成功过则返回明确空态/错误，**绝不自动生成 Mock 假数据**。
+- `DATA_SOURCE=mock`：演示数据，用于开发与开源演示。
+
+前端顶部状态条会显示数据源与「正在显示缓存数据」提示，不会把过期数据伪装成实时数据。
+
+### 任务表字段约定
+
+任务多维表格需要以下字段（名称可在 `backend/config/feishu_fields.py` 调整）：
+
+| 字段 | 说明 |
+| ---- | ---- |
+| 任务标题 / 标题 | 任务名（必填） |
+| 负责人 / 成员 | 任务负责人（可选） |
+| 所属组 / 组别 | 映射到组别（别名见 team.yaml） |
+| 兵种 / 车型 | 映射到兵种（别名见 team.yaml） |
+| 优先级 | 超紧急限时 / 重要紧急 / 重要 / 一般（可别名） |
+| 开始日期 / 截止日期 | 任务时间（用于剩余天数与逾期提示） |
+| 状态 | 进行中 / 已完成 / 停滞 / 已停止（只有进行中显示在任务页） |
+
+---
+
+## 队伍配置 team.yaml
+
+复制 `backend/config/team.example.yaml` 为 `backend/config/team.yaml` 后修改：
+
+```yaml
+team:
+  name: RoboMaster Team          # 前端品牌名（大屏左上角）
+  groups: [算法, 电控, 机械, 运营]   # 组别（组别页 / 任务编号前缀）
+  robots: [重装, 步兵, 哨兵, 雷达, 飞镖]  # 兵种（兵种页）
+  group_aliases:                 # 飞书里出现的组别叫法 -> 正式组别
+    视觉: 算法
+    视觉组: 算法
+  robot_aliases:                 # 飞书里出现的兵种叫法 -> 正式兵种
+    英雄: 重装
+    工程: 重装
+    步兵1: 步兵
+  group_prefixes:                # 任务 fallback 编号前缀
+    算法: ALG
+    电控: ELE
+  priority_map:                  # 优先级文字 -> 内部枚举
+    超紧急限时: super_urgent
+    重要紧急: important_urgent
+    重要: important
+    一般: normal
+```
+
+- **不创建 `team.yaml` 时使用内置默认值**（与示例一致），后端日志会提示复制示例文件。
+- 修改后重启后端生效；前端通过 `GET /api/meta` 读取，无需改 TypeScript 源码。
+
+---
+
+## 摄像头可选功能
+
+摄像头 + 人脸签到是**可选功能**。未安装任何相机依赖时 Dashboard 照常运行
+（`CAMERA_ENABLED=false`，人脸签到入口自动隐藏/禁用）。
+
 ```bash
-curl http://localhost:5000/api/health
-curl http://localhost:5000/api/tasks
-curl http://localhost:5000/api/dashboard
-curl http://localhost:5000/api/groups
-curl http://localhost:5000/api/robots
-curl http://localhost:5000/api/worktime/leaderboard?range=week
-curl http://localhost:5000/api/people
+pip install -r backend/requirements-camera.txt
 ```
+
+在 `backend/.env` 中启用：
+
+```dotenv
+CAMERA_ENABLED=true
+CAMERA_CTI_PATH=C:\Program Files\HuarayTech\...\GenTL_Python\xxx.cti
+```
+
+- **检测**：YuNet ONNX（`backend/integrations/camera/models/`）
+- **识别**：OpenCV SFace 深度人脸特征（`cv2.FaceRecognizerSF_create`）
+  - Gallery 向量库 + 余弦相似度 + 阈值/边距双重判定，**严禁强制 Top-1**；
+  - 陌生人拒识（不在数据库中），多帧确认 + 身份缓存，低频识别（约 1~3 FPS），
+    预览保持在 20 FPS 以上。
+- **人脸库**：`backend/face_library/`（每人至少 1 张清晰照片即可注册，支持多张）。
+- **华睿 SDK**（harvesters/genicam）无法通过 pip 安装，需安装官方「华睿 MV Viewer」，
+  并在 `CAMERA_CTI_PATH` 指向其 GenTL CTI 文件。其他 USB 摄像头可通过 OpenCV
+  VideoCapture 使用（见 `integrations/camera/base.py`）。
+
+> 本机无相机时，人脸识别的真实运行请标注「需要真实硬件验证（希沃端）」。
 
 ---
 
-## 五、远程部署到希沃（Win7）
+## 开发方式
 
-### 方式 A：远程自动部署（SSH 可用时）
-```powershell
-cd C:\Users\Admin\Desktop\飞书可视化\RoboMasterDashboard
-.\scripts\deploy.ps1 -Host 192.168.53.117 -User Administrator -Password 你的密码
-```
-脚本会：前端 build → 上传 dist/backend/scripts → 远端装依赖 → 重启 → 健康检查。
+```bash
+# 后端（热重载开发服务器）
+cd backend
+python app.py            # 默认 Waitress :8080；开发可用 FLASK_DEBUG=1
 
-### 方式 B：离线部署（U盘/共享文件夹，推荐当 SSH 不可用时）
-```powershell
-.\scripts\build_bundle.ps1          # 生成 C:\RoboMasterDashboard_deploy.zip
+# 前端
+cd frontend
+npm ci --legacy-peer-deps
+npm run dev              # Vite dev server :5173，/api 代理到 :5000（按需修改 vite.config.ts）
 ```
-把 zip 拷贝到希沃，解压到 `C:\RoboMasterDashboard`，**右键管理员运行** `scripts\setup_win7.bat`。
-setup 会自动：检测 Python → 装依赖 → 记录 Python 路径 → 防火墙 → 开机自启 → 启动。
+
+### 测试与质量
+
+```bash
+# 后端
+python -m compileall backend
+ruff check backend
+pytest backend
+
+# 前端
+cd frontend
+npm run lint
+npm run test
+npm run build
+```
+
+前端已配置 ESLint（flat config）+ Prettier + Vitest；后端已配置 ruff + pytest。
+CI（GitHub Actions）不依赖真实飞书账号、相机、Secret 与网络。
 
 ---
 
-## 六、Win7 Python 环境
+## 部署方式
 
-- 要求 **Python 3.8.x**（3.8.10 官方安装包支持 Win7）。
-- 安装时勾选 "Add python.exe to PATH"。
-- 依赖已锁定（requirements.txt，均兼容 Python 3.8）：
-  - Flask==2.3.3
-  - waitress==3.0.0
-  - requests==2.31.0
-  - python-dotenv==1.0.1
+### 本机 / 服务器（推荐现代系统）
 
-## 七、启动后端（希沃生产）
-
-```bat
-C:\RoboMasterDashboard\scripts\start.bat
-```
-内部执行：`python backend\app.py` → **Waitress 监听 0.0.0.0:8080**，同时伺服 `dist/` 与 `/api/*`。
-
----
-
-## 八、飞书配置
-
-1. 开放平台创建企业自建应用，开启权限：
-   - 多维表格：查看、评论、编辑和管理多维表格
-   - 通讯录：获取用户基本信息 / 通讯录只读
-   - （劳模榜若用考勤）考勤：导出打卡数据
-2. 把应用加入多维表格协作者（应用本身需有文档权限）。
-3. 填写 `backend\.env`（由 `.env.example` 复制）：
-   ```
-   FEISHU_APP_ID=
-   FEISHU_APP_SECRET=
-   FEISHU_APP_TOKEN=
-   FEISHU_TABLE_ID=
-   FEISHU_WORKTIME_APP_TOKEN=
-   FEISHU_WORKTIME_TABLE_ID=
-   FEISHU_WORKTIME_SOURCE=mock   # bitable | attendance | mock
-   PORT=8080
-   HOST=0.0.0.0
-   ```
-4. 重启服务。首页左下角 / 右上角会从 `MOCK DATA` 变为 `FEISHU LIVE`。
-
-> `.env` 绝不允许提交到 Git；App Secret 只存在于希沃的 `backend\.env`。
-
----
-
-## 九、任务表字段（飞书多维表格）
-
-字段名在 `backend/config/feishu_fields.py` 集中配置：
-
-| 前端字段 | 飞书字段名 | 类型 |
-|---|---|---|
-| 编号 | 编号 | 文本 |
-| 任务 | 任务是什么（通俗详细写，严禁用ai） | 文本 |
-| 是否延期 | 是否延期 | 勾选 |
-| 实际完成日期 | 实际完成日期 | 日期 |
-| 最新进展 | 最新进展记录（要求每天更新） | 文本 |
-| 重要紧急程度 | 重要紧急程度 | 单选 |
-| 组别 | 组别 | 单选 |
-| 兵种 | 兵种 | 单选 |
-| 负责人 | 负责人 | 人员 |
-| 计划完成日期 | 计划完成日期 | 日期 |
-| 依赖任务 | 依赖任务 | 文本 |
-| 阻塞 | 阻塞 | 勾选 |
-| （可选）最近更新时间 | 最近更新时间 | 日期 |
-| （可选）进展历史 | 进展历史 | 文本 |
-
-**受控词（系统自动清洗，界面绝不出现）：**
-- `视觉 / 视觉组 / Vision / Visual` → 一律显示为 **算法**
-- `英雄 / hero` → 一律显示为 **重装**
-- `通用` 兵种 → 视为 **未指定**（不伪造"通用"兵种）
-
-组别固定：算法 / 电控 / 机械 / 运营。兵种：重装 / 步兵1 / 步兵2 / 哨兵 / 工程 / 雷达 / 飞镖。
-
----
-
-## 十、人员头像
-
-- 打卡记录与任务负责人通过 `user_id / open_id` 关联，再调用飞书通讯录 API 取姓名与头像。
-- 后端内存缓存，**TTL 12 小时**，避免每次刷新都请求 30 个头像。
-- 头像加载失败时前端显示**姓名首字** fallback，不使用随机互联网头像。
-
-## 十一、工时 / 劳模榜
-
-- 数据来源由 `FEISHU_WORKTIME_SOURCE` 决定：
-  - `bitable`：从 `FEISHU_WORKTIME_*` 多维表格读上下班打卡记录（推荐）。
-  - `attendance`：调用飞书考勤 `user_tasks/query`（需"导出打卡数据"权限）。
-  - `mock`：演示数据（飞书未接入时）。
-- 异常记录（没下班打卡 / 重复打卡 / 负时间 / 单日 >16h / 跨天 / 空 user）**一律不进榜**，只写日志。
-- 按真实打卡工时 `sum(durationMinutes)` 排序，不按任务数量。
-
----
-
-## 十二、防火墙
-
-只放行 TCP 8080，**不关闭整个防火墙**：
-```bat
-C:\RoboMasterDashboard\scripts\firewall_win7.bat
-```
-或手动（Win7 兼容）：
-```
-netsh advfirewall firewall add rule name="RoboMaster Dashboard" dir=in action=allow protocol=TCP localport=8080
+```bash
+pip install -r backend/requirements.txt
+DATA_SOURCE=feishu ADMIN_TOKEN=xxx python backend/app.py
 ```
 
-## 十三、开机自启
+生产使用 **Waitress**（线程池 WSGI），不需要 Nginx 即可单机对外。
 
-```bat
-schtasks /create /tn "RoboMasterDashboard" /tr "C:\RoboMasterDashboard\scripts\start.bat" /sc onstart /ru SYSTEM /rl highest /f
-```
-开机即启动（SYSTEM 身份，无需密码）。停止任务：`schtasks /end /tn RoboMasterDashboard`。
+### 脚本部署（可选）
 
-## 十四、日志
-
-- `logs\app.log`：运行与访问日志。
-- `logs\error.log`：错误日志（ERROR 以上）。
-- 日志**不会**输出 `FEISHU_APP_SECRET`、`tenant_access_token`、SSH 密码。
+`scripts/start.bat`（启动，写入 PID 文件）、`scripts/stop.bat`（按 PID 停止，不误杀其它 python）、
+`scripts/deploy.ps1`（SSH Key 推送 + 远程重启，不使用明文密码）。
 
 ---
 
-## 十五、更新程序
+## FAQ
 
-1. 改前端 → `cd frontend && npm run build`。
-2. 方式 A：`.\scripts\deploy.ps1 ...`（SSH）。
-   方式 B：`.\scripts\build_bundle.ps1` 生成 zip，U盘拷贝覆盖 `C:\RoboMasterDashboard`（保留 `backend\.env` 与 `logs\`），运行 `setup_win7.bat` 或直接重启服务。
-3. 验证：`http://192.168.53.117:8080/api/health` 返回 200。
+**Q: 页面显示「正在显示缓存数据」？**
+后端飞书请求失败，正在展示最近一次成功缓存（`/api/health` 中 `stale=true`）。
+请检查 `backend/.env` 凭证与网络；这不是 Mock 假数据。
 
-## 十六、故障处理
+**Q: 为什么 tasks 是空的 / 报「DATA_SOURCE=feishu 但未配置…」？**
+`DATA_SOURCE=feishu` 但 `backend/.env` 未填写飞书凭证。复制 `.env.example` 并填写，
+或开发时显式 `DATA_SOURCE=mock`。
 
-| 现象 | 排查 |
-|---|---|
-| 网页打不开 | 服务是否在跑（任务管理器找 python）；日志 `logs\app.log`；端口 `netstat -ano \| findstr :8080` |
-| 本机通、局域网不通 | 防火墙规则是否添加（firewall_win7.bat）；是否为同一局域网 |
-| 显示 MOCK DATA | `backend\.env` 未填或未生效；检查 `FEISHU_APP_ID/SECRET/TOKEN/TABLE_ID` |
-| 任务为 0 条 | 飞书应用是否被加为多维表格协作者；字段名是否与 `feishu_fields.py` 一致 |
-| 劳模榜为空 | `FEISHU_WORKTIME_SOURCE` 未配置；或考勤/工时表无数据（不会伪造） |
-| 头像不显示 | 应用无通讯录权限，前端会显示姓名首字（正常降级） |
-| 服务 500 | 看 `logs\error.log`（不含密钥） |
-| 端口 8080 被占 | 改 `backend\.env` 的 PORT 并同步防火墙规则 |
+**Q: 怎么改组别/兵种？**
+改 `backend/config/team.yaml` 的 `groups` / `robots` / 别名，重启后端即可。
+
+**Q: 摄像头不工作？**
+确认 `CAMERA_ENABLED=true`、`CAMERA_CTI_PATH` 指向有效 CTI、已安装
+`requirements-camera.txt`。日志中查看 `camera` 模块初始化信息。
+
+**Q: 前端改了代码看不到效果？**
+`npm run build` 后产物输出到 `backend/dist/`，刷新浏览器（必要时强制刷新）。
+
+**Q: 支持哪些浏览器？**
+现代 Chrome/Edge 均可；希沃端建议 Chrome，详见 Legacy 章节。
 
 ---
 
-## 安全说明
+## Legacy：Windows 7 部署
 
-- 只监听局域网 `0.0.0.0:8080`，不开放公网。
-- `FEISHU_APP_SECRET` 只存在希沃 `backend\.env`，不进前端 JS，不入 Git。
-- 日志不含任何密钥 / token / 密码。
+本项目最初运行在实验室希沃白板（Windows 7 老双核、Python 3.8），此路径**仍受支持**，
+但仅建议旧设备使用：
+
+- 使用 **Python 3.8**（仓库历史提供 `installers/` 的 3.8 安装包说明，安装包不入库）。
+- 后端依赖锁定在 `requirements.txt`（Flask 2.3.3 / waitress 3.0 / requests 2.31，兼容 Win7）。
+- 前端在开发电脑（现代 Node）构建出 `dist/`，Win7 只运行 Python 服务。
+- Win7 无安全更新，**仅限实验室内网使用，不建议暴露公网**；摄像头人脸识别在
+  老双核上建议保持「低频识别 + 多帧确认」，预览 ≥20 FPS。
+- 摄像头 SDK（华睿）按厂商要求安装在希沃端，`CAMERA_CTI_PATH` 指向实际路径。
+
+---
+
+## License
+
+[MIT](./LICENSE)

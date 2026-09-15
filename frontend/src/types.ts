@@ -114,7 +114,22 @@ export interface Health {
   status: string
   version: string
   dataSource: 'mock' | 'feishu'
+  data_source?: 'mock' | 'feishu'
+  feishu: 'ok' | 'degraded'
+  last_success_sync?: string | null
+  cache_age?: number | null
+  stale: boolean
   timestamp: string
+}
+
+/** 统一队伍配置（GET /api/meta，来源 backend/config/team.yaml） */
+export interface TeamMeta {
+  teamName: string
+  groups: string[]
+  robots: string[]
+  groupAliases: Record<string, string>
+  robotAliases: Record<string, string | null>
+  priorityLabels: Record<string, string>
 }
 
 export interface DutyDay {

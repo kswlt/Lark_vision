@@ -1,25 +1,68 @@
-# 密钥与本地环境
+# =========================================================
+# 密钥与本地环境（.env 统一放在 backend/ 下）
+# =========================================================
 backend/.env
 *.env
 !backend/.env.example
+!*.example
+!*.example.json
 
+# 运行时队伍配置（真实名单，不入库；仓库只提交 team_roster.example.json / team.example.yaml）
+backend/config/team_roster.json
+backend/config/team.yaml
+backend/config/team.json
+
+# 真实飞书文档配置与本地备份（不入库；仓库只提交 featured_docs.example.py）
+backend/config/featured_docs.py
+backend/config/all_docs_content.json
+
+# =========================================================
 # 依赖与构建
+# =========================================================
 frontend/node_modules/
 backend/.venv/
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
 
-# 日志
-logs/*.log
-
-# 本地构建产物（希沃运行时需要 dist，但可由 frontend/dist 重新构建）
+# 前端产物
 frontend/dist/
 dist/
 
-# 大体积日志（不入库）
-logs/capture.txt
+# =========================================================
+# 日志与调试产物（不入库）
+# =========================================================
+logs/
+*.log
+*.err
+!logs/.gitkeep
 
+# =========================================================
+# 安装器 / 二进制 / 抓包 / 截图
+# =========================================================
+installers/
+*.exe
+*.msi
+*.pcap
+*.pcapng
+*.zip
+
+# =========================================================
 # 人脸识别数据（照片/模型/打卡记录，隐私不入库）
+# =========================================================
 face_library/
 data/
 backend/data/
+
+# 宣传片 / 本地媒体（体积大，不入库）
+frontend/public/promo_videos/
+public/promo_videos/
+*.mp4
+*.mov
+
+# 编辑器
+.vscode/
+.idea/

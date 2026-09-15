@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 RoboMaster Team Adam 进度管理系统 —— Flask 后端入口。
 
@@ -9,6 +8,7 @@ RoboMaster Team Adam 进度管理系统 —— Flask 后端入口。
 本地调试：
     python app.py --dev
 """
+import functools
 import json
 import logging
 import os
@@ -20,15 +20,31 @@ from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from flask import Flask, abort, jsonify, request, send_from_directory
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(BACKEND_DIR)
+# 统一从 backend/.env 加载配置（README / .gitignore 均以 backend/.env 为准）
+load_dotenv(os.path.join(BACKEND_DIR, ".env"), override=False)
 
 # 让 backend 目录可被顶层导入（services / config / data）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from config.team_config import (  # noqa: E402
+    ALLOWED_GROUPS,
+    ALLOWED_ROBOTS,
+    GROUP_ALIASES,
+    PRIORITY_MAP,
+    ROBOT_ALIASES,
+    TEAM_NAME,
+)
 from services import aggregates  # noqa: E402
 from services.sources import DataStore  # noqa: E402
-from config.featured_docs import FEATURED_DOCS  # noqa: E402
+
+# 精选文档列表：优先读真实配置 featured_docs.py（.gitignore 已忽略，不入库）；
+# 开源用户 clone 后无该文件，回退到示例配置 featured_docs.example.py。
+try:
+    from config.featured_docs import FEATURED_DOCS  # type: ignore
+except ImportError:
+    from config.featured_docs_example import FEATURED_DOCS  # type: ignore
 
 VERSION = "1.0.0"
 
@@ -67,11 +83,17 @@ PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 
 @app.get("/api/health")
 def api_health():
+    h = store.health_status()
     return jsonify(
         {
-            "status": "ok",
+            "status": h["status"],
             "version": VERSION,
-            "dataSource": store.data_source,
+            "dataSource": h["data_source"],
+            "data_source": h["data_source"],
+            "feishu": h["feishu"],
+            "last_success_sync": h["last_success_sync"],
+            "cache_age": h["cache_age"],
+            "stale": h["stale"],
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
     )
@@ -143,7 +165,36 @@ def api_face_checkin():
     return jsonify(read_today_checkin())
 
 
-@app.get("/api/checkin/sync")
+# ---------------- 管理员认证（后台管理接口） ----------------
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+
+
+def require_admin(fn):
+    """简单 Bearer Token 认证。未配置 ADMIN_TOKEN 时管理接口直接拒绝，防止误开放。"""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not ADMIN_TOKEN:
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "message": "管理接口未配置 ADMIN_TOKEN（请在 backend/.env 设置后重启）",
+                    }
+                ),
+                503,
+            )
+        auth = request.headers.get("Authorization", "")
+        token = auth[7:] if auth.startswith("Bearer ") else ""
+        if not token or token != ADMIN_TOKEN:
+            return jsonify({"status": "error", "message": "未授权：需要有效管理员 Token"}), 401
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+@app.post("/api/admin/checkin/sync")
+@require_admin
 def api_checkin_sync():
     """手动触发：把希沃人脸打卡记录同步到飞书「打卡记录」表（幂等）。"""
     from services.feishu.sync_checkin import sync_checkin_to_feishu
@@ -153,12 +204,13 @@ def api_checkin_sync():
     try:
         r = sync_checkin_to_feishu(store.client, store.app_token)
         return jsonify({"status": "ok", **r})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         app.logger.warning("checkin sync API error: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 200
 
 
-@app.get("/api/attendance/sync")
+@app.post("/api/admin/attendance/sync")
+@require_admin
 def api_attendance_sync():
     """手动触发：把飞书考勤工时数据同步到电子表格（幂等）。"""
     from services.feishu.sync_attendance import sync_attendance_to_sheets
@@ -168,12 +220,14 @@ def api_attendance_sync():
     try:
         r = sync_attendance_to_sheets(store.client, days=30)
         return jsonify({"status": "ok", **r})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         app.logger.warning("attendance sync API error: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 200
 
 
-INTERNAL_CAM = "http://127.0.0.1:18080"  # camera_checkin 内部流服务（跨 Session 无权限问题）
+INTERNAL_CAM = os.environ.get(
+    "CAMERA_INTERNAL_URL", "http://127.0.0.1:18080"
+)  # camera_checkin 内部流服务（跨 Session 无权限问题）
 
 
 @app.get("/api/camera/frame")
@@ -198,6 +252,7 @@ def api_camera_frame():
 def api_camera_stream():
     """MJPEG 实时视频流：代理内部流服务（camera_checkin 进程内存缓存，非磁盘轮询）。"""
     import urllib.request
+
     from flask import Response
 
     def generate():
@@ -262,11 +317,15 @@ def api_face_latest():
     """最近一次人脸识别结果：打卡成功 / 识别到成员 / 陌生人（供前端 UI 提示）。"""
     import json as _json
 
-    p = os.path.join(BASE_DIR, "face_library", "last_recognition.json")
+    # 路径与摄像头模块一致：FACE_LIBRARY_DIR（默认 ~/.lark_vision/face_library）
+    face_lib = os.environ.get(
+        "FACE_LIBRARY_DIR", os.path.join(os.path.expanduser("~"), ".lark_vision", "face_library")
+    )
+    p = os.path.join(face_lib, "last_recognition.json")
     if not os.path.exists(p):
         return jsonify({"name": None, "time": None, "status": None})
     try:
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             return jsonify(_json.load(f))
     except Exception:
         return jsonify({"name": None, "time": None, "status": None})
@@ -304,7 +363,7 @@ def api_docs_list():
                 })
         return jsonify({"files": result, "source": "folder"})
     except Exception as e:
-        logger.exception("获取飞书文档列表失败")
+        app.logger.exception("获取飞书文档列表失败")
         return jsonify({"files": [], "error": str(e)}), 500
 
 
@@ -320,7 +379,7 @@ def api_docs_content():
     local_backup = os.path.join(os.path.dirname(__file__), "config", "all_docs_content.json")
     if os.path.exists(local_backup):
         try:
-            with open(local_backup, "r", encoding="utf-8") as f:
+            with open(local_backup, encoding="utf-8") as f:
                 backup = json.load(f)
             if doc_id in backup and backup[doc_id].get("content"):
                 return jsonify({
@@ -329,25 +388,46 @@ def api_docs_content():
                     "source": "local_backup"
                 })
         except Exception as e:
-            root.warning("读取本地文档备份失败: %s", e)
+            app.logger.warning("读取本地文档备份失败: %s", e)
 
     # 本地没有，调用飞书API
     if not store.feishu_configured or not store.client:
         return jsonify({"content": "", "error": "飞书未配置且本地无备份"})
     try:
         if doc_type == "docx":
-            data = store.client.get("/docx/v1/documents/%s/raw_content" % doc_id)
+            data = store.client.get(f"/docx/v1/documents/{doc_id}/raw_content")
             content = data.get("content", "")
             return jsonify({"content": content, "type": "docx", "source": "feishu_api"})
         elif doc_type == "doc":
-            data = store.client.get("/doc/v2/%s/content" % doc_id)
+            data = store.client.get(f"/doc/v2/{doc_id}/content")
             content = data.get("content", "")
             return jsonify({"content": content, "type": "doc", "source": "feishu_api"})
         else:
-            return jsonify({"content": "", "error": "不支持的文档类型: %s" % doc_type}), 400
+            return jsonify({"content": "", "error": f"不支持的文档类型: {doc_type}"}), 400
     except Exception as e:
-        logger.exception("获取飞书文档内容失败 doc_id=%s", doc_id)
+        app.logger.exception("获取飞书文档内容失败 doc_id=%s", doc_id)
         return jsonify({"content": "", "error": str(e)}), 500
+
+
+@app.get("/api/meta")
+def api_meta():
+    """统一队伍配置（供前端读取组别/兵种/别名/优先级）。
+
+    其他 RoboMaster 队伍 fork 后只需修改 backend/config/team.yaml，
+    前端通过本接口获取配置，无需修改 TypeScript 源码。
+    """
+    # code -> 第一个中文名（PRIORITY_MAP 的 value 是英文 key 方向）
+    reverse = {}
+    for zh, code in PRIORITY_MAP.items():
+        reverse.setdefault(code, zh)
+    return jsonify({
+        "teamName": TEAM_NAME,
+        "groups": list(ALLOWED_GROUPS),
+        "robots": list(ALLOWED_ROBOTS),
+        "groupAliases": GROUP_ALIASES,
+        "robotAliases": ROBOT_ALIASES,
+        "priorityLabels": reverse,
+    })
 
 
 # ---------------- 静态站点（React dist） ----------------
@@ -422,12 +502,12 @@ def _checkin_sync_loop():
                 try:
                     r = sync_checkin_to_feishu(store.client, store.app_token)
                     app.logger.info("checkin sync scheduled: %s", r)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     app.logger.warning("checkin sync scheduled error: %s", e)
                 synced_today = True
             if now.hour < 22:
                 synced_today = False
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         time.sleep(300)
 
@@ -447,12 +527,12 @@ def _attendance_sync_loop():
                 try:
                     r = sync_attendance_to_sheets(store.client, days=30)
                     app.logger.info("attendance sync scheduled: %s", r)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     app.logger.warning("attendance sync scheduled error: %s", e)
                 synced_today = True
             if now.hour < 22:
                 synced_today = False
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         time.sleep(300)
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 通讯录用户信息（姓名/头像）获取 + 12 小时内存缓存。
 避免每次 Dashboard 刷新都请求 30 个头像。
@@ -8,7 +7,7 @@ import time
 from urllib.parse import quote
 
 
-class UserCache(object):
+class UserCache:
     def __init__(self, client, ttl=12 * 3600):
         self._client = client
         self._ttl = ttl
@@ -33,7 +32,7 @@ class UserCache(object):
     def _fetch(self, user_id, id_type):
         try:
             data = self._client.get(
-                "/contact/v3/users/%s" % quote(user_id),
+                f"/contact/v3/users/{quote(user_id)}",
                 params={"user_id_type": id_type},
             )
             user = data.get("user") or {}
@@ -42,7 +41,7 @@ class UserCache(object):
                 "name": user.get("name"),
                 "avatarUrl": avatar.get("avatar_72") or avatar.get("avatar_240") or user.get("avatar_url"),
             }
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             import logging
 
             logging.getLogger("feishu").warning("获取用户 %s 信息失败: %s", user_id, e)

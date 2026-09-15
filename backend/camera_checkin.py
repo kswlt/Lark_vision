@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 希沃端人脸打卡服务（常驻）——入口。
 架构已重构为多线程（见 camera_manager.py）：
@@ -11,22 +10,22 @@ Fallback：LBPH（SFace不可用时自动回退）
     常驻运行: python camera_checkin.py
     单帧测试: python camera_checkin.py --once
 """
+import argparse
 import os
 import sys
-import time
-import argparse
 
-os.environ["PATH"] = r"C:\Program Files\HuarayTech\MV Viewer\Runtime\x64;" + os.environ.get("PATH", "")
-
+# 相机/人脸库路径统一由 backend/.env 或环境变量配置（APP_DATA_DIR / FACE_LIBRARY_DIR /
+# CAMERA_CTI_PATH），camera_manager 兼容层会加载 backend/.env，此处不再硬编码任何路径。
 import cv2
 
 from camera_manager import (
-    CameraManager,
     LIB,
-    load_recognizer,
+    CameraManager,
     detect_and_recognize_lbph,
+    load_recognizer,
     log,
 )
+
 
 # 单帧测试模式共用 CameraManager 的相机初始化和抓帧
 def run_once():
@@ -48,17 +47,18 @@ def run_once():
         cv2.imencode(".jpg", img)[1].tofile(os.path.join(LIB, "frame_live.jpg"))
         results = detect_and_recognize_lbph(img, detector, rec, names)
         if results:
-            for name, conf, box, rec_ok in results:
-                print("FACE %s conf=%s box=%s" % (name, conf, box))
+            for name, conf, box, _rec_ok in results:
+                print(f"FACE {name} conf={conf} box={box}")
         else:
             print("NO_FACE_DETECTED")
     finally:
         try:
             if cm._ia is not None:
-                cm._ia.stop(); cm._ia.destroy()
+                cm._ia.stop()
+                cm._ia.destroy()
             if cm._h is not None:
                 cm._h.reset()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     return 0
 
@@ -75,9 +75,10 @@ def main():
     cm = CameraManager()
     try:
         cm.run()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.error("service error: %s", e)
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         return 1
     return 0
 

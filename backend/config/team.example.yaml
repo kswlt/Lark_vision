@@ -1,0 +1,67 @@
+# =========================================================
+# 队伍配置示例（team.example.yaml）
+# =========================================================
+# 使用方法：复制为 team.yaml（仓库只提交本示例文件，team.yaml 已被 .gitignore 忽略）。
+#   cp backend/config/team.example.yaml backend/config/team.yaml
+# 修改后需重启后端生效。不创建 team.yaml 时使用下方内置默认值（与示例一致），
+# 后端启动日志会提示复制本文件。
+#
+# 目标是：其他 RoboMaster 队伍 clone 后主要只需要修改本文件，
+# 不需要修改 Python 源代码。
+
+team:
+  name: RoboMaster Team
+
+  # 正式组别（大屏「组别」页 / 任务编号前缀 / 统计分组）
+  groups:
+    - 算法
+    - 电控
+    - 机械
+    - 运营
+
+  # 正式兵种（大屏「兵种」页 / 统计分组）
+  robots:
+    - 重装
+    - 步兵
+    - 哨兵
+    - 雷达
+    - 飞镖
+
+  # 历史遗留组别名 -> 正式组别（飞书里出现的各种叫法统一映射）
+  group_aliases:
+    视觉: 算法
+    视觉组: 算法
+    Vision: 算法
+    Visual: 算法
+    vision: 算法
+    视觉算法: 算法
+
+  # 历史遗留兵种别名 -> 正式兵种（值为 null 表示该叫法被禁止，视为未指定）
+  robot_aliases:
+    英雄: 重装
+    hero: 重装
+    Hero: 重装
+    步兵1: 步兵
+    步兵2: 步兵
+    工程: 重装
+    通用: null
+
+  # 组别 -> 任务可读编号前缀（未配置的组回退 TSK）
+  group_prefixes:
+    算法: ALG
+    电控: ELE
+    机械: MEC
+    运营: OPR
+
+  # 重要紧急程度 -> 前端优先级枚举
+  priority_map:
+    超紧急限时: super_urgent
+    重要紧急: important_urgent
+    紧急: important_urgent
+    重要: important
+    重要不紧急: important
+    紧急不重要: important
+    一般: normal
+    普通: normal
+    不紧急不重要: normal
+    低: normal
