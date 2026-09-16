@@ -116,34 +116,90 @@ repo/
 
 ## 快速启动（Quick Start）
 
-环境要求：**Python 3.11+**（3.8 也可，见 [Legacy](#legacywindows-7-部署)）、**Node.js LTS**（仅构建前端时需要）。
+环境要求：**Python 3.11+**、**Node.js LTS**（仅构建前端时需要）。推荐 Windows 10/11 或 Ubuntu 22.04/24.04。
+Windows 7 / Python 3.8 见 [Legacy 章节](#legacywindows-7-部署)。
+
+### 方式 A：一键脚本（推荐）
+
+**Windows (PowerShell)**
+```powershell
+git clone https://github.com/kswlt/Lark_vision.git
+cd Lark_vision
+.\scripts\setup.ps1     # 创建 .venv、装依赖、build 前端、复制 .env/team.yaml
+.\scripts\start.ps1     # 启动（PID 管理）
+# 浏览器打开 http://localhost:8080
+# 停止：.\scripts\stop.ps1
+```
+
+**Ubuntu / Linux**
+```bash
+git clone https://github.com/kswlt/Lark_vision.git
+cd Lark_vision
+chmod +x scripts/*.sh
+./scripts/setup.sh      # 创建 .venv、装依赖、build 前端、复制 .env/team.yaml
+./scripts/start.sh      # 启动（nohup + PID）
+# 浏览器打开 http://localhost:8080
+# 停止：./scripts/stop.sh
+```
+
+脚本会自动创建 `.env`（默认 `DATA_SOURCE=mock, CAMERA_ENABLED=false`），首次启动即可看到完整 Dashboard，不需要飞书账号。
+
+### 方式 B：手动步骤
+
+<details>
+<summary>Windows（PowerShell）</summary>
+
+```powershell
+git clone https://github.com/kswlt/Lark_vision.git
+cd Lark_vision
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend\requirements.txt
+
+Copy-Item backend\.env.example backend\.env
+Copy-Item backend\config\team.example.yaml backend\config\team.yaml
+
+cd frontend
+npm ci --legacy-peer-deps
+npm run build          # 产物输出到 ../dist/
+cd ..
+
+python backend\app.py
+# 浏览器打开 http://localhost:8080
+```
+</details>
+
+<details>
+<summary>Ubuntu / Linux</summary>
 
 ```bash
 git clone https://github.com/kswlt/Lark_vision.git
 cd Lark_vision
 
-# ---------- 后端 ----------
-python -m venv .venv
-# Windows: .venv\Scripts\activate
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+python -m pip install -r backend/requirements.txt
 
-cp backend/.env.example backend/.env        # Windows: copy backend\.env.example backend\.env
+cp backend/.env.example backend/.env
 cp backend/config/team.example.yaml backend/config/team.yaml
 
-# 先用 Mock 数据跑通（不需要任何飞书账号）：
-DATA_SOURCE=mock python backend/app.py
-# 浏览器打开 http://localhost:8080
-
-# ---------- （可选）前端重新构建 ----------
 cd frontend
 npm ci --legacy-peer-deps
-npm run build            # 产物输出到 backend/dist/
+npm run build          # 产物输出到 ../dist/
 cd ..
-```
 
-> 也可以不构建前端：仓库的 `backend/dist/` 已有可直接运行的构建产物。
-> 首次演示建议 `DATA_SOURCE=mock`，确认页面正常后再切换 `DATA_SOURCE=feishu` 接真实数据。
+python backend/app.py
+# 浏览器打开 http://localhost:8080
+```
+</details>
+
+### 默认访问与端口
+
+- 本机：`http://localhost:8080`
+- 同局域网：`http://<本机IP>:8080`（Windows 防火墙 / Ubuntu ufw 需放行 TCP 8080）
+- 修改端口：编辑 `backend/.env` 里的 `PORT` / `HOST`
+- 首次演示保持 `DATA_SOURCE=mock`，确认页面正常后再切 `DATA_SOURCE=feishu` 接真实飞书数据。
 
 ---
 
@@ -311,8 +367,31 @@ DATA_SOURCE=feishu ADMIN_TOKEN=xxx python backend/app.py
 
 ### 脚本部署（可选）
 
-`scripts/start.bat`（启动，写入 PID 文件）、`scripts/stop.bat`（按 PID 停止，不误杀其它 python）、
-`scripts/deploy.ps1`（SSH Key 推送 + 远程重启，不使用明文密码）。
+| 用途 | Windows | Linux |
+|------|---------|-------|
+| 初始化 | `.\scripts\setup.ps1` | `./scripts/setup.sh` |
+| 启动 | `.\scripts\start.ps1` | `./scripts/start.sh` |
+| 停止 | `.\scripts\stop.ps1` | `./scripts/stop.sh` |
+| 远程推送 | `.\scripts\deploy.ps1 -Host <IP> -User <user> -Key <ssh_key>` | （暂无 deploy.sh） |
+
+脚本均使用 PID 文件精确管理，不会 `taskkill /f /im python.exe` 误杀其它进程。
+
+### 长期运行
+
+**Windows（开机自启）**：用 `scripts\start.bat` 配合 Windows「任务计划程序」设置开机启动即可。
+历史 Win7 方案见 [Legacy](#legacywindows-7-部署)。
+
+**Linux（systemd）**：参考 `examples/deployment/systemd/rm-control.service.example`：
+
+```bash
+sudo cp examples/deployment/systemd/rm-control.service.example /etc/systemd/system/rm-control.service
+# 编辑文件：把 /path/to/Lark_vision 改成实际路径，User 改成实际用户
+sudo systemctl daemon-reload
+sudo systemctl enable --now rm-control
+journalctl -u rm-control -f   # 看日志
+```
+
+生产使用 **Waitress**（Windows）/ Waitress 也可在 Linux 运行，不需要 Nginx 即可单机对外。
 
 ---
 
@@ -334,7 +413,7 @@ DATA_SOURCE=feishu ADMIN_TOKEN=xxx python backend/app.py
 `requirements-camera.txt`。日志中查看 `camera` 模块初始化信息。
 
 **Q: 前端改了代码看不到效果？**
-`npm run build` 后产物输出到 `backend/dist/`，刷新浏览器（必要时强制刷新）。
+`npm run build` 后产物输出到仓库根目录 `dist/`，刷新浏览器（必要时强制刷新）。
 
 **Q: 支持哪些浏览器？**
 现代 Chrome/Edge 均可；希沃端建议 Chrome，详见 Legacy 章节。

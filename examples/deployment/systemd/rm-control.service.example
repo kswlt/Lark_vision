@@ -1,0 +1,29 @@
+# ============================================================
+# RM CONTROL — systemd unit 示例（Linux 长期运行）
+# 安装：
+#   1. cp examples/deployment/systemd/rm-control.service.example /etc/systemd/system/rm-control.service
+#   2. 把下面的 /path/to/Lark_vision 改成实际仓库路径
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now rm-control
+# 日志：journalctl -u rm-control -f
+# ============================================================
+[Unit]
+Description=RM CONTROL — RoboMaster Team Dashboard
+After=network.target
+
+[Service]
+Type=simple
+# 改成你的实际部署用户（不要用 root）
+User=adam
+Group=adam
+# 改成仓库绝对路径
+WorkingDirectory=/path/to/Lark_vision
+# .venv 里的 python
+ExecStart=/path/to/Lark_vision/.venv/bin/python backend/app.py
+# 环境变量文件（建议把 PORT/HOST 等放这里，不要写在 unit 里）
+EnvironmentFile=/path/to/Lark_vision/backend/.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

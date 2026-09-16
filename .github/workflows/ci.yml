@@ -30,8 +30,13 @@ jobs:
         run: npm run build
 
   backend:
-    name: Backend (ruff / pytest / compileall)
-    runs-on: ubuntu-latest
+    name: Backend (ruff / pytest / compileall / smoke)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: backend
@@ -39,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - name: Install core dependencies
@@ -50,9 +55,26 @@ jobs:
         run: ruff check app.py services config data camera_checkin.py camera_manager.py integrations tests
       - name: Pytest
         env:
-          # CI 不依赖真实飞书账号 / 相机 / Secret / 网络
           DATA_SOURCE: mock
           FEISHU_WORKTIME_SOURCE: mock
         run: python -m pytest -q
       - name: Compile check
         run: python -m compileall -q app.py services config data camera_checkin.py camera_manager.py integrations tests
+      - name: Smoke test (start backend + hit /api/health)
+        env:
+          DATA_SOURCE: mock
+          CAMERA_ENABLED: "false"
+          PORT: 8080
+        shell: bash
+        run: |
+          python app.py &
+          SERVER_PID=$!
+          sleep 4
+          curl -sf http://127.0.0.1:8080/api/health | tee /tmp/health.json
+          curl -sf http://127.0.0.1:8080/api/meta > /dev/null
+          curl -sf http://127.0.0.1:8080/api/tasks > /dev/null
+          curl -sf http://127.0.0.1:8080/api/dashboard > /dev/null
+          # camera 无 token 必须 401
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/camera/status)
+          if [ "$CODE" != "401" ]; then echo "camera/status expected 401, got $CODE"; exit 1; fi
+          kill $SERVER_PID 2>/dev/null || true

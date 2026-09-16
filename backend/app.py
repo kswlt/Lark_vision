@@ -167,6 +167,13 @@ def api_face_checkin():
 
 # ---------------- 管理员认证（后台管理接口） ----------------
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+VIEWER_TOKEN = os.environ.get("VIEWER_TOKEN", "").strip()
+CAMERA_PUBLIC = os.environ.get("CAMERA_PUBLIC", "false").strip().lower() in ("1", "true", "yes")
+
+
+def _extract_bearer(request) -> str:
+    auth = request.headers.get("Authorization", "")
+    return auth[7:] if auth.startswith("Bearer ") else ""
 
 
 def require_admin(fn):
@@ -184,11 +191,33 @@ def require_admin(fn):
                 ),
                 503,
             )
-        auth = request.headers.get("Authorization", "")
-        token = auth[7:] if auth.startswith("Bearer ") else ""
+        token = _extract_bearer(request)
         if not token or token != ADMIN_TOKEN:
             return jsonify({"status": "error", "message": "未授权：需要有效管理员 Token"}), 401
         return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def require_viewer(fn):
+    """摄像头接口鉴权：CAMERA_PUBLIC=true 时放行；否则要求 VIEWER_TOKEN 或 ADMIN_TOKEN。
+
+    兼容 <img src="/api/camera/stream?token=xxx"> 的 MJPEG 流式场景，
+    同时支持 Authorization: Bearer xxx 头。
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if CAMERA_PUBLIC:
+            return fn(*args, **kwargs)
+        token = _extract_bearer(request) or (request.args.get("token") or "").strip()
+        if not token:
+            return jsonify({"status": "error", "message": "摄像头接口未公开：需要 token"}), 401
+        if VIEWER_TOKEN and token == VIEWER_TOKEN:
+            return fn(*args, **kwargs)
+        if ADMIN_TOKEN and token == ADMIN_TOKEN:
+            return fn(*args, **kwargs)
+        return jsonify({"status": "error", "message": "未授权：无效 token"}), 403
 
     return wrapper
 
@@ -200,13 +229,13 @@ def api_checkin_sync():
     from services.feishu.sync_checkin import sync_checkin_to_feishu
 
     if not store.client:
-        return jsonify({"status": "error", "message": "飞书未配置"}), 200
+        return jsonify({"status": "error", "message": "飞书未配置"}), 503
     try:
         r = sync_checkin_to_feishu(store.client, store.app_token)
         return jsonify({"status": "ok", **r})
     except Exception as e:
         app.logger.warning("checkin sync API error: %s", e)
-        return jsonify({"status": "error", "message": str(e)}), 200
+        return jsonify({"status": "error", "message": str(e)}), 502
 
 
 @app.post("/api/admin/attendance/sync")
@@ -216,13 +245,13 @@ def api_attendance_sync():
     from services.feishu.sync_attendance import sync_attendance_to_sheets
 
     if not store.client:
-        return jsonify({"status": "error", "message": "飞书未配置"}), 200
+        return jsonify({"status": "error", "message": "飞书未配置"}), 503
     try:
         r = sync_attendance_to_sheets(store.client, days=30)
         return jsonify({"status": "ok", **r})
     except Exception as e:
         app.logger.warning("attendance sync API error: %s", e)
-        return jsonify({"status": "error", "message": str(e)}), 200
+        return jsonify({"status": "error", "message": str(e)}), 502
 
 
 INTERNAL_CAM = os.environ.get(
@@ -231,6 +260,7 @@ INTERNAL_CAM = os.environ.get(
 
 
 @app.get("/api/camera/frame")
+@require_viewer
 def api_camera_frame():
     """兼容接口：代理内部流服务的单帧 JPEG（实时链路已改 /api/camera/stream）。"""
     import urllib.request
@@ -249,6 +279,7 @@ def api_camera_frame():
 
 
 @app.get("/api/camera/stream")
+@require_viewer
 def api_camera_stream():
     """MJPEG 实时视频流：代理内部流服务（camera_checkin 进程内存缓存，非磁盘轮询）。"""
     import urllib.request
@@ -282,6 +313,7 @@ def api_camera_stream():
 
 
 @app.get("/api/camera/status")
+@require_viewer
 def api_camera_status():
     """相机服务状态 + FPS 统计（来自内部流服务指标）。"""
     import urllib.request
@@ -313,6 +345,7 @@ def api_camera_status():
 
 
 @app.get("/api/attendance/face-latest")
+@require_viewer
 def api_face_latest():
     """最近一次人脸识别结果：打卡成功 / 识别到成员 / 陌生人（供前端 UI 提示）。"""
     import json as _json
@@ -369,11 +402,19 @@ def api_docs_list():
 
 @app.get("/api/docs/content")
 def api_docs_content():
-    """获取飞书文档内容（只读）。优先读本地备份，本地没有再调飞书API。"""
+    """获取飞书文档内容（只读）。优先读本地备份，本地没有再调飞书API。
+
+    安全：只允许 FEATURED_DOCS 白名单内的 doc_id，避免任意 doc_id 越权读取。
+    """
     doc_id = request.args.get("doc_id", "")
     doc_type = request.args.get("type", "docx")
     if not doc_id:
         return jsonify({"content": "", "error": "缺少 doc_id"}), 400
+
+    # 白名单校验：doc_id 必须在 FEATURED_DOCS 中
+    whitelist_tokens = {d.get("token", "") for d in (FEATURED_DOCS or [])}
+    if whitelist_tokens and doc_id not in whitelist_tokens:
+        return jsonify({"content": "", "error": "doc_id 不在白名单内"}), 403
 
     # 优先读本地备份（解决飞书权限不足的问题）
     local_backup = os.path.join(os.path.dirname(__file__), "config", "all_docs_content.json")
@@ -392,7 +433,7 @@ def api_docs_content():
 
     # 本地没有，调用飞书API
     if not store.feishu_configured or not store.client:
-        return jsonify({"content": "", "error": "飞书未配置且本地无备份"})
+        return jsonify({"content": "", "error": "飞书未配置且本地无备份"}), 503
     try:
         if doc_type == "docx":
             data = store.client.get(f"/docx/v1/documents/{doc_id}/raw_content")
@@ -406,7 +447,7 @@ def api_docs_content():
             return jsonify({"content": "", "error": f"不支持的文档类型: {doc_type}"}), 400
     except Exception as e:
         app.logger.exception("获取飞书文档内容失败 doc_id=%s", doc_id)
-        return jsonify({"content": "", "error": str(e)}), 500
+        return jsonify({"content": "", "error": str(e)}), 502
 
 
 @app.get("/api/meta")
@@ -466,7 +507,7 @@ def static_files(path):
                 "message": "dist 尚未构建。请先在前端执行 npm run build，并将 frontend/dist 上传到本目录。",
             }
         ),
-        200,
+        503,
     )
 
 

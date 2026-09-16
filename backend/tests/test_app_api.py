@@ -50,7 +50,7 @@ def test_admin_api_correct_token(client, monkeypatch):
     monkeypatch.setattr(app_module.store, "client", None)
     monkeypatch.setattr(app_module.store, "feishu_configured", False)
     r = client.post("/api/admin/checkin/sync", headers={"Authorization": "Bearer secret-token-1"})
-    assert r.status_code == 200
+    assert r.status_code == 503  # 飞书未配置 -> 503 Service Unavailable
     d = r.get_json()
     assert d["status"] == "error"  # 明确提示飞书未配置，而不是静默成功
 
