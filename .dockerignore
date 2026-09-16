@@ -10,7 +10,7 @@
 dist/
 frontend/dist/
 
-# 本地数据与隐私
+# 本地数据与隐私（注意：backend/data/ 是 Python 包，不能排除；只排除项目根运行时数据）
 .env
 backend/.env
 backend/config/team.yaml
@@ -18,8 +18,8 @@ backend/config/team_roster.json
 backend/config/featured_docs.py
 backend/config/all_docs_content.json
 face_library/
-data/
-backend/data/
+/data/
+backend/runtime/
 
 # 日志与运行时
 logs/
