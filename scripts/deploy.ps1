@@ -1,23 +1,23 @@
 # ============================================================
-# 远程自动部署脚本（在开发电脑运行）
+# 远程自动部署脚本（在开发电脑运行，Windows 目标）
 # 前置条件：
 #   1. 目标机器已安装 Win32-OpenSSH，且本机已配置 SSH Key 免密登录：
-#        ssh-copy-id Administrator@<目标IP>   （或手动把公钥加入 authorized_keys）
+#        ssh-copy-id <User>@<Host>
 #   2. 首次连接请先手动执行一次 ssh，接受目标主机指纹（本脚本不关闭主机指纹校验）
-# 用法：
-#   .\scripts\deploy.ps1 -Host 192.168.53.117 -User Administrator
-#   .\scripts\deploy.ps1 -Host 192.168.53.117 -User Administrator -Key C:\Users\me\.ssh\rm_deploy_key
+# 用法（必填参数，不绑定开发电脑）：
+#   .\scripts\deploy.ps1 -Host 192.168.1.100 -User Administrator -Key C:\Users\you\.ssh\id_ed25519
+#   .\scripts\deploy.ps1 -Host 192.168.1.100 -User Administrator -Key C:\Users\you\.ssh\id_ed25519 -RemoteDir C:\RoboMasterDashboard
 # 流程：
-#   1. 前端 npm run build
-#   2. 上传 dist 与 backend 到 <RemoteDir>
+#   1. 前端 npm run build（产物直接输出到仓库根 dist/）
+#   2. 上传 dist/ backend/ scripts/ 到 <RemoteDir>
 #   3. 远端安装依赖（如未装）
 #   4. 通过 PID 文件优雅停止旧进程，再启动新进程（不会误杀系统其它 python）
-#   5. 请求 /api/health 验证 HTTP 200
+#   5. 请求 /api/health 验证
 # 安全说明：脚本不使用明文密码、不使用 Invoke-Expression、不关闭主机指纹校验。
 # ============================================================
 param(
-  [string]$Host = "192.168.53.117",
-  [string]$User = "Administrator",
+  [Parameter(Mandatory=$true)][string]$Host,
+  [Parameter(Mandatory=$true)][string]$User,
   [string]$Key = "",
   [string]$RemoteDir = "C:\RoboMasterDashboard"
 )
@@ -54,26 +54,27 @@ function Invoke-Upload {
 }
 
 # 0. 检查远程可达
-Write-Host "==> 检查 SSH 可达性"
+Write-Host "==> 检查 SSH 可达性 $User@$Host"
 $null = Invoke-Remote "ver"
 
-# 1. 前端构建
+# 1. 前端构建（vite outDir 直接输出到仓库根 dist/，无需再 copy）
 Write-Host "==> npm run build"
 Push-Location (Join-Path $root "frontend")
 npm run build
 if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
 Pop-Location
-if (Test-Path (Join-Path $root "dist")) { Remove-Item -Recurse -Force (Join-Path $root "dist") }
-Copy-Item -Recurse (Join-Path $root "frontend\dist") (Join-Path $root "dist")
+if (-not (Test-Path (Join-Path $root "dist"))) { throw "build 后 dist/ 不存在" }
 
 # 2. 确保远端目录
 $null = Invoke-Remote "if not exist $RemoteDir mkdir $RemoteDir"
 
-# 3. 上传
+# 3. 上传（远端启动需要 scripts/，一起上传）
 Write-Host "==> 上传 dist"
 Invoke-Upload (Join-Path $root "dist") "$RemoteDir\dist"
 Write-Host "==> 上传 backend"
 Invoke-Upload (Join-Path $root "backend") "$RemoteDir\backend"
+Write-Host "==> 上传 scripts"
+Invoke-Upload (Join-Path $root "scripts") "$RemoteDir\scripts"
 
 # 4. 远端安装依赖 + 优雅重启（PID 文件方案，不 taskkill 全部 python）
 Write-Host "==> 远端安装依赖（如未装）"
@@ -86,7 +87,7 @@ Start-Sleep -Seconds 5
 $ok = $false
 for ($i = 0; $i -lt 6; $i++) {
   try {
-    $h = Invoke-RestMethod "http://$Host:8080/api/health" -TimeoutSec 5
+    $h = Invoke-RestMethod "http://${Host}:8080/api/health" -TimeoutSec 5
     Write-Host ("[OK] health: " + ($h | ConvertTo-Json -Compress))
     $ok = $true
     break
@@ -94,4 +95,4 @@ for ($i = 0; $i -lt 6; $i++) {
     Start-Sleep -Seconds 3
   }
 }
-if (-not $ok) { Write-Host "[FAIL] 服务未就绪，请检查远端日志 $RemoteDir\logs\app.log" }
+if (-not $ok) { Write-Host "[FAIL] 服务未就绪，请检查远端日志 $RemoteDir\logs\console_err.log" }

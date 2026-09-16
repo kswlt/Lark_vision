@@ -1,0 +1,28 @@
+# RM CONTROL — Docker Compose（单容器，Mock 默认）
+# 用法：
+#   docker compose up -d --build
+#   访问 http://localhost:8080
+# 接真实飞书：复制 backend/.env.example 为 backend/.env 填好凭证后，
+#   修改下方 environment 改为 DATA_SOURCE=feishu 或直接 env_file: ./backend/.env
+services:
+  rm-control:
+    build: .
+    container_name: rm-control
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # 默认 Mock，无需飞书账号即可看到完整 Dashboard
+      DATA_SOURCE: mock
+      CAMERA_ENABLED: "false"
+      HOST: 0.0.0.0
+      PORT: "8080"
+      # 接真实飞书时取消注释并填值，或改用 env_file:
+      # FEISHU_APP_ID: ${FEISHU_APP_ID}
+      # FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
+      # FEISHU_APP_TOKEN: ${FEISHU_APP_TOKEN}
+      # FEISHU_TABLE_ID: ${FEISHU_TABLE_ID}
+      # DATA_SOURCE: feishu
+    volumes:
+      # 可选：挂载自定义队伍配置（覆盖镜像内默认 team.yaml）
+      - ./backend/config/team.yaml:/app/backend/config/team.yaml:ro

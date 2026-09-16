@@ -367,37 +367,12 @@ def api_face_latest():
 # ---------------- 飞书云文档（只读） ----------------
 @app.get("/api/docs/list")
 def api_docs_list():
-    """获取展示文档列表（只读）。
-    优先返回 config/featured_docs.py 中配置的精选文档（无需文件夹授权）；
-    若未配置，则尝试从飞书云空间文件夹列出（需 folder_token 且应用有文件夹权限）。
+    """获取展示文档列表（只读，仅白名单）。
+
+    安全：只返回 config/featured_docs.py 中显式配置的精选文档。
+    不根据任意 folder_token 枚举应用可访问的其他文档，避免越权暴露。
     """
-    # 优先返回精选文档（配置式，稳定可靠）
-    if FEATURED_DOCS:
-        return jsonify({"files": FEATURED_DOCS, "source": "featured"})
-    # 兜底：从飞书文件夹列出（需授权）
-    if not store.feishu_configured or not store.client:
-        return jsonify({"files": [], "error": "飞书未配置"})
-    folder_token = request.args.get("folder_token", "")
-    try:
-        data = store.client.get(
-            "/drive/v1/files",
-            params={"folder_token": folder_token, "page_size": 50},
-        )
-        files = data.get("files", [])
-        result = []
-        for f in files:
-            ftype = f.get("type", "")
-            if ftype in ("docx", "doc", "sheet", "bitable", "file", "folder", "mindnote", "slides"):
-                result.append({
-                    "token": f.get("token", ""),
-                    "name": f.get("name", ""),
-                    "type": ftype,
-                    "url": f.get("url", ""),
-                })
-        return jsonify({"files": result, "source": "folder"})
-    except Exception as e:
-        app.logger.exception("获取飞书文档列表失败")
-        return jsonify({"files": [], "error": str(e)}), 500
+    return jsonify({"files": FEATURED_DOCS or [], "source": "featured"})
 
 
 @app.get("/api/docs/content")
@@ -411,9 +386,10 @@ def api_docs_content():
     if not doc_id:
         return jsonify({"content": "", "error": "缺少 doc_id"}), 400
 
-    # 白名单校验：doc_id 必须在 FEATURED_DOCS 中
+    # 白名单校验：doc_id 必须在 FEATURED_DOCS 中。
+    # 白名单为空 = 一个文档都不允许读取（绝不放行任意 doc_id 越权）。
     whitelist_tokens = {d.get("token", "") for d in (FEATURED_DOCS or [])}
-    if whitelist_tokens and doc_id not in whitelist_tokens:
+    if doc_id not in whitelist_tokens:
         return jsonify({"content": "", "error": "doc_id 不在白名单内"}), 403
 
     # 优先读本地备份（解决飞书权限不足的问题）
@@ -504,7 +480,7 @@ def static_files(path):
         jsonify(
             {
                 "status": "error",
-                "message": "dist 尚未构建。请先在前端执行 npm run build，并将 frontend/dist 上传到本目录。",
+                "message": "dist 尚未构建。请先在前端执行 npm run build（产物输出到仓库根 dist/）。",
             }
         ),
         503,

@@ -1,12 +1,10 @@
-# -*- coding: utf-8 -*-
 # ============================================================
 # SSH 隧道脚本：将本机 <LocalPort> 端口映射到远端主机的 Dashboard 端口。
 # 适用场景：本机与目标机器不在同一网段，需经跳板机建立 SSH 隧道访问。
 #
-# 用法（示例）：
-#   .\scripts\start_tunnel.ps1
-#   .\scripts\start_tunnel.ps1 -Target Administrator@192.168.1.156 -Key C:\Users\me\.ssh\rm_deploy_key
-#   .\scripts\start_tunnel.ps1 -LocalPort 8080 -RemotePort 8080
+# 用法（必填 -Target 和 -Key）：
+#   .\scripts\start_tunnel.ps1 -Target Administrator@192.168.1.100 -Key C:\Users\you\.ssh\id_ed25519
+#   .\scripts\start_tunnel.ps1 -Target user@host -Key C:\path\to\key -LocalPort 8080 -RemotePort 8080
 #
 # 安全说明：
 #   - 使用 SSH Key 认证（BatchMode=yes，不交互输密码）
@@ -14,13 +12,18 @@
 #   - 断线/失败自动重连（15 秒间隔）
 # ============================================================
 param(
-  [string]$Target = "Administrator@192.168.1.156",
-  [string]$Key = "C:\Users\Admin\.ssh\rm_deploy_key",
+  [Parameter(Mandatory=$true)][string]$Target,
+  [Parameter(Mandatory=$true)][string]$Key,
   [int]$LocalPort = 8080,
   [int]$RemotePort = 8080,
   [string]$RemoteBind = "127.0.0.1",
   [string]$LogDir = ""
 )
+
+if (-not (Test-Path $Key)) {
+  Write-Host "[error] SSH Key 不存在: $Key" -ForegroundColor Red
+  exit 1
+}
 
 $ErrorActionPreference = "SilentlyContinue"
 if (-not $LogDir) { $LogDir = Join-Path (Split-Path -Parent $PSScriptRoot) "logs" }

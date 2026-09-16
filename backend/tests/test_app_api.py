@@ -89,7 +89,11 @@ def test_unknown_api_404_json(client):
 
 
 def test_dist_not_built_message(client):
-    """首页路由不崩溃：dist 已构建则返回 index.html，未构建则给出明确提示。"""
+    """首页路由不崩溃：dist 已构建则返回 index.html(200)，未构建则返回 503 明确提示。"""
     r = client.get("/")
-    assert r.status_code == 200
-    assert r.data
+    assert r.status_code in (200, 503)
+    if r.status_code == 200:
+        assert r.data
+    else:
+        assert r.is_json
+        assert r.get_json().get("status") == "error"

@@ -79,7 +79,7 @@
       │
       ▼
   Waitress (TCP 8080, 生产 WSGI)
-      ├── /        → React 静态站点（frontend 构建产物 backend/dist/）
+      ├── /        → React 静态站点（frontend 构建产物仓库根 dist/）
       └── /api/*   → Flask API
                         │
                         ├── 飞书多维表格（任务数据，唯一 Source of Truth）

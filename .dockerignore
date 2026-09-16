@@ -1,0 +1,47 @@
+# 依赖与构建
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# 前端产物（多阶段构建会重新生成）
+dist/
+frontend/dist/
+
+# 本地数据与隐私
+.env
+backend/.env
+backend/config/team.yaml
+backend/config/team_roster.json
+backend/config/featured_docs.py
+backend/config/all_docs_content.json
+face_library/
+data/
+backend/data/
+
+# 日志与运行时
+logs/
+*.log
+*.err
+app.pid
+
+# 媒体
+*.mp4
+*.mov
+frontend/public/promo_videos/
+
+# Git / IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# 无关文件
+installers/
+*.exe
+*.msi
+*.zip
+.pcap
+.pcapng

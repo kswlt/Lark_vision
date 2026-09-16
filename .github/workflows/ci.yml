@@ -78,3 +78,27 @@ jobs:
           CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/camera/status)
           if [ "$CODE" != "401" ]; then echo "camera/status expected 401, got $CODE"; exit 1; fi
           kill $SERVER_PID 2>/dev/null || true
+
+  docker:
+    name: Docker (build + compose up + smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t rm-control:ci .
+      - name: docker compose up
+        run: docker compose up -d --build
+      - name: Wait for healthy + smoke
+        run: |
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/health || true)
+            if [ "$CODE" = "200" ]; then break; fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8080/api/health
+          curl -sf http://127.0.0.1:8080/api/tasks > /dev/null
+          curl -sf http://127.0.0.1:8080/api/dashboard > /dev/null
+          curl -sf http://127.0.0.1:8080/api/meta > /dev/null
+      - name: docker compose down
+        if: always()
+        run: docker compose down -v
