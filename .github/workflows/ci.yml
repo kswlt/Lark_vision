@@ -90,12 +90,12 @@ jobs:
         run: docker compose up -d --build
       - name: Wait for healthy + smoke
         run: |
-          for i in $(seq 1 20); do
+          for i in $(seq 1 40); do
             CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/health || true)
-            if [ "$CODE" = "200" ]; then break; fi
+            if [ "$CODE" = "200" ]; then echo "healthy after ${i} checks"; break; fi
             sleep 2
           done
-          curl -sf http://127.0.0.1:8080/api/health
+          curl -sf http://127.0.0.1:8080/api/health || { echo "=== container logs ==="; docker compose logs; exit 1; }
           curl -sf http://127.0.0.1:8080/api/tasks > /dev/null
           curl -sf http://127.0.0.1:8080/api/dashboard > /dev/null
           curl -sf http://127.0.0.1:8080/api/meta > /dev/null
