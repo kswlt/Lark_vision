@@ -22,9 +22,13 @@
 - [主要功能](#主要功能)
 - [架构](#架构)
 - [快速启动（Quick Start）](#快速启动quick-start)
+  - [方式 C：Docker](#方式-cdocker)
 - [飞书配置](#飞书配置)
+  - [Docker 接真实飞书](#docker-接真实飞书)
 - [队伍配置 team.yaml](#队伍配置-teamyaml)
+  - [Docker 自定义 team.yaml](#docker-自定义-teamyaml)
 - [摄像头可选功能](#摄像头可选功能)
+  - [Docker 中的相机限制](#docker-中的相机限制)
 - [开发方式](#开发方式)
 - [部署方式](#部署方式)
 - [FAQ](#faq)
@@ -69,6 +73,10 @@
 - **摄像头人脸签到**（可选）：YuNet 检测 + SFace 深度特征识别，支持陌生人拒识、
   低频识别、多帧确认、身份缓存；签到结果同步到飞书。
 - **宣传片循环播放**：首页一键全屏循环播放宣传片（双击退出），支持深色模式、防烧屏像素偏移。
+  宣传片视频文件**不入库**（体积大）：fresh clone / 未配置视频时，播放器会自动显示
+  「宣传片资源未配置」提示，不会报错或刷 404。放入自己的视频即可循环播放：
+  将 `.mp4` 放入 `frontend/public/promo_videos/`（需重新 `npm run build`），
+  或放入仓库根 `public/promo_videos/`（重启服务即生效，无需重新构建）。
 
 ---
 
@@ -194,6 +202,40 @@ python backend/app.py
 ```
 </details>
 
+### 方式 C：Docker
+
+要求：已安装 Docker Engine + Docker Compose v2.24+（Windows / macOS / Linux 均可）。
+
+```bash
+git clone https://github.com/kswlt/Lark_vision.git
+cd Lark_vision
+docker compose up -d --build
+# 浏览器打开 http://localhost:8080
+```
+
+**默认零配置即可运行**：`DATA_SOURCE=mock`、`CAMERA_ENABLED=false`，无需创建任何
+Secret / 配置文件（镜像内置默认队伍配置），启动后即可看到完整 Dashboard。
+
+常用命令：
+
+```bash
+docker compose ps              # 容器状态与 healthcheck（/api/health）
+docker compose logs -f         # 跟随日志
+docker compose restart         # 重启（改 backend/.env 或 team.yaml 后生效）
+docker compose up -d           # 应用配置变更后重建容器
+docker compose down            # 停止并移除容器（-v 连数据卷一起删）
+docker compose up -d --build   # 前端/后端代码变更后重新构建并启动
+```
+
+说明：
+
+- 端口映射固定 `8080:8080`（改端口需编辑 `compose.yaml` 的 `ports`）。
+- 单容器轻量部署：React 静态站 + Flask/Waitress 同容器，**不需要 Nginx**。
+- 容器以非 root 用户（`appuser`）运行，内置 healthcheck（`GET /api/health`），
+  Mock 与真实飞书模式下均保持 `healthy`。
+- 接真实飞书 / 自定义队伍配置见对应章节：改 `backend/.env` 与 `team.yaml` 即可，
+  **不需要编辑 compose.yaml**。
+
 ### 默认访问与端口
 
 - 本机：`http://localhost:8080`
@@ -244,6 +286,23 @@ ADMIN_TOKEN=change-me-strong-random-token
 
 前端顶部状态条会显示数据源与「正在显示缓存数据」提示，不会把过期数据伪装成实时数据。
 
+### Docker 接真实飞书
+
+Docker 模式下同样**只需要改 `backend/.env`，不需要修改 compose.yaml**：
+
+```bash
+cp backend/.env.example backend/.env
+# 编辑 backend/.env：填写 FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_APP_TOKEN /
+# FEISHU_TABLE_ID，并把 DATA_SOURCE 改为 feishu（建议同时设置 ADMIN_TOKEN / VIEWER_TOKEN）
+docker compose up -d
+```
+
+- `compose.yaml` 通过 `env_file` 自动读取 `backend/.env` 注入容器；
+  该文件**不存在时静默跳过**，容器回落到镜像内置默认值（`DATA_SOURCE=mock`）——所以
+  Mock 零配置能跑、真实飞书只改配置能跑，两种模式都不会因为配置缺失而启动失败。
+- 改完 `.env` 后执行 `docker compose up -d` 或 `docker compose restart` 生效。
+- 验证：访问 `http://localhost:8080/api/health`，`data_source` 应为 `feishu`。
+
 ### 任务表字段约定
 
 任务多维表格需要以下字段（名称可在 `backend/config/feishu_fields.py` 调整）：
@@ -289,6 +348,25 @@ team:
 - **不创建 `team.yaml` 时使用内置默认值**（与示例一致），后端日志会提示复制示例文件。
 - 修改后重启后端生效；前端通过 `GET /api/meta` 读取，无需改 TypeScript 源码。
 
+### Docker 自定义 team.yaml
+
+Docker 下自定义队伍配置**不需要重新 build 镜像**，通过 compose override 挂载：
+
+```bash
+cp backend/config/team.example.yaml backend/config/team.yaml   # 修改队伍名/组别/兵种/别名
+cp compose.override.yaml.example compose.override.yaml
+docker compose up -d    # compose 自动合并 override，把 team.yaml 只读挂载进容器
+```
+
+之后修改 `backend/config/team.yaml`，执行 `docker compose restart` 即可生效。
+
+- 默认 `compose.yaml` **不挂载任何 volume**，容器使用镜像内置默认队伍配置
+  （`RoboMaster Team`），因此 fresh clone 无需任何配置文件也能启动。
+- 注意：必须先创建 `backend/config/team.yaml` 再启用 override，否则 Docker 会把
+  不存在的宿主机路径建成空目录导致容器启动失败。
+- `compose.override.yaml` 是本地用户配置（已 gitignore）；仓库只提交
+  `compose.override.yaml.example` 作为示例。
+
 ---
 
 ## 摄像头可选功能
@@ -317,7 +395,31 @@ CAMERA_CTI_PATH=C:\Program Files\HuarayTech\...\GenTL_Python\xxx.cti
   并在 `CAMERA_CTI_PATH` 指向其 GenTL CTI 文件。其他 USB 摄像头可通过 OpenCV
   VideoCapture 使用（见 `integrations/camera/base.py`）。
 
+**观看权限**（`CAMERA_PUBLIC` / `VIEWER_TOKEN`）：
+
+- `CAMERA_PUBLIC=true`：`/api/camera/*` 与 `/api/attendance/face-latest`、
+  `/api/attendance/face-checkin` 无需鉴权（实验室大屏本地使用可开）。
+- `CAMERA_PUBLIC=false`（默认）：需要 `VIEWER_TOKEN` 或 `ADMIN_TOKEN`。
+  正式前端在相机面板输入 Viewer Token，调用 `POST /api/viewer/session` 换取
+  **HttpOnly cookie**，之后状态轮询、打卡名单与 `<img src="/api/camera/stream">`
+  MJPEG 流都会自动携带凭证，token 不会出现在 URL / JS 里。
+  `?token=xxx` 与 `Authorization: Bearer xxx` 作为旧版/手工方式仍兼容。
+- 容器内启用相机：同样只需在 `backend/.env` 设 `CAMERA_ENABLED=true` 及
+  `CAMERA_CTI_PATH` 等参数（见下方限制）。
+
 > 本机无相机时，人脸识别的真实运行请标注「需要真实硬件验证（希沃端）」。
+
+### Docker 中的相机限制
+
+- **Core Dashboard**（任务 / 工时 / 考勤 / 文档 / 宣传片）在 Docker 下**正式支持**。
+- **工业相机（华睿 GenTL）Docker 为 Experimental / Vendor-dependent**：
+  - 华睿 SDK（harvesters / GenTL CTI 动态库）**不在镜像内**，也未在 CI 验证；
+  - USB / GigE 相机需把设备透传给容器（如 compose `devices` / `--device`），
+    CTI 文件需挂载进容器，宿主机还需安装厂商驱动（Windows 上的华睿驱动无法在
+    Linux 容器内使用，跨平台需厂商对应 Linux 版 SDK）；
+  - 视频流默认走容器内 `18080` 内部服务，跨容器 / 跨宿主机场景需额外配置网络。
+- **建议**：相机 + 人脸识别优先在宿主机 **Native 部署**（见上文「摄像头可选功能」），
+  Docker 只托管 Dashboard。
 
 ---
 

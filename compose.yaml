@@ -1,9 +1,22 @@
-# RM CONTROL — Docker Compose（单容器，Mock 默认）
+# RM CONTROL — Docker Compose（单容器，Mock 零配置默认）
+#
 # 用法：
-#   docker compose up -d --build
+#   docker compose up -d --build   首次构建并启动（Mock 模式，无需任何配置文件）
+#   docker compose up -d           已有镜像时启动 / 应用配置变更
 #   访问 http://localhost:8080
-# 接真实飞书：复制 backend/.env.example 为 backend/.env 填好凭证后，
-#   修改下方 environment 改为 DATA_SOURCE=feishu 或直接 env_file: ./backend/.env
+#
+# 接真实飞书（不需要修改本文件）：
+#   1. cp backend/.env.example backend/.env
+#   2. 在 backend/.env 填写飞书凭证并设 DATA_SOURCE=feishu
+#   3. docker compose up -d
+#   backend/.env 通过 env_file 注入容器；文件不存在时静默跳过，使用镜像内置默认值（Mock）。
+#
+# 自定义队伍配置（不需要修改本文件）：
+#   1. cp backend/config/team.example.yaml backend/config/team.yaml 并修改队伍信息
+#   2. cp compose.override.yaml.example compose.override.yaml
+#   3. docker compose up -d   （compose 自动合并 override，挂载 team.yaml）
+#
+# 启用摄像头（不需要修改本文件）：在 backend/.env 设 CAMERA_ENABLED=true 及相关参数。
 services:
   rm-control:
     build: .
@@ -11,21 +24,14 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    # backend/.env 不存在时忽略（required: false），容器回落到镜像内 ENV 默认值：
+    #   DATA_SOURCE=mock / CAMERA_ENABLED=false  -> 零配置即可看到完整 Dashboard。
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
-      # 默认 Mock，无需飞书账号即可看到完整 Dashboard
-      DATA_SOURCE: mock
-      CAMERA_ENABLED: "false"
+      # 容器内固定监听地址与端口（与 ports 映射一致）。
+      # 业务配置（DATA_SOURCE / CAMERA_* / FEISHU_* / ADMIN_TOKEN / VIEWER_TOKEN 等）
+      # 一律来自 backend/.env，避免此处覆盖用户配置。
       HOST: 0.0.0.0
       PORT: "8080"
-      # 接真实飞书时取消注释并填值，或改用 env_file:
-      # FEISHU_APP_ID: ${FEISHU_APP_ID}
-      # FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
-      # FEISHU_APP_TOKEN: ${FEISHU_APP_TOKEN}
-      # FEISHU_TABLE_ID: ${FEISHU_TABLE_ID}
-      # DATA_SOURCE: feishu
-    volumes:
-      # 可选：挂载自定义队伍配置（覆盖镜像内默认 team.yaml）。
-      # 注意：宿主机上该文件必须已存在，否则 Docker 会把它建成空目录导致启动失败。
-      # 首次部署可用：cp backend/config/team.example.yaml backend/config/team.yaml
-      # 然后取消下面这行注释：
-      # - ./backend/config/team.yaml:/app/backend/config/team.yaml:ro

@@ -1,0 +1,18 @@
+# compose.override.yaml 示例 —— 自定义队伍配置挂载
+#
+# compose.yaml 默认不挂载任何 volume，容器内使用镜像内置的默认队伍配置
+# （RoboMaster Team）。本示例把宿主机 backend/config/team.yaml 以只读方式
+# 挂载进容器，实现「改 team.yaml 无需重新 build 镜像」。
+#
+# 用法：
+#   1. cp backend/config/team.example.yaml backend/config/team.yaml   # 修改队伍信息
+#   2. cp compose.override.yaml.example compose.override.yaml
+#   3. docker compose up -d        # compose 自动读取并合并 compose.override.yaml
+#   之后修改 backend/config/team.yaml，执行 docker compose restart 即可生效。
+#
+# 注意：挂载前必须已存在 backend/config/team.yaml，否则 Docker 会把不存在的
+# 宿主机路径建成空目录导致容器启动失败。
+services:
+  rm-control:
+    volumes:
+      - ./backend/config/team.yaml:/app/backend/config/team.yaml:ro

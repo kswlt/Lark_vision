@@ -157,23 +157,34 @@ def api_people():
     return jsonify(aggregates.compute_people(wp, store.get_tasks()))
 
 
-@app.get("/api/attendance/face-checkin")
-def api_face_checkin():
-    """今日已通过摄像头人脸识别打卡的成员名单。"""
-    from services.face_checkin import read_today_checkin
-
-    return jsonify(read_today_checkin())
-
-
 # ---------------- 管理员认证（后台管理接口） ----------------
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
 VIEWER_TOKEN = os.environ.get("VIEWER_TOKEN", "").strip()
 CAMERA_PUBLIC = os.environ.get("CAMERA_PUBLIC", "false").strip().lower() in ("1", "true", "yes")
 
+# 轻量 viewer session cookie 名（HttpOnly，值 = 已校验的 viewer/admin token）
+VIEWER_COOKIE = "rm_viewer_session"
+
 
 def _extract_bearer(request) -> str:
     auth = request.headers.get("Authorization", "")
     return auth[7:] if auth.startswith("Bearer ") else ""
+
+
+def _viewer_token_from_request() -> str:
+    """从请求中提取 viewer 凭证，按优先级：
+    1. Authorization: Bearer xxx
+    2. rm_viewer_session cookie（正式前端：POST /api/viewer/session 建立的 HttpOnly cookie，
+       可让 <img src="/api/camera/stream"> 等子资源请求自动携带，无需手工加 Header）
+    3. ?token=xxx（Legacy / 手工兼容方式，会进入 URL 日志，正式前端不使用）
+    """
+    token = _extract_bearer(request)
+    if token:
+        return token
+    token = (request.cookies.get(VIEWER_COOKIE) or "").strip()
+    if token:
+        return token
+    return (request.args.get("token") or "").strip()
 
 
 def require_admin(fn):
@@ -202,15 +213,15 @@ def require_admin(fn):
 def require_viewer(fn):
     """摄像头接口鉴权：CAMERA_PUBLIC=true 时放行；否则要求 VIEWER_TOKEN 或 ADMIN_TOKEN。
 
-    兼容 <img src="/api/camera/stream?token=xxx"> 的 MJPEG 流式场景，
-    同时支持 Authorization: Bearer xxx 头。
+    凭证来源见 _viewer_token_from_request：Bearer / session cookie / Legacy query token。
+    MJPEG <img src="/api/camera/stream"> 场景通过 HttpOnly session cookie 免 Header 工作。
     """
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         if CAMERA_PUBLIC:
             return fn(*args, **kwargs)
-        token = _extract_bearer(request) or (request.args.get("token") or "").strip()
+        token = _viewer_token_from_request()
         if not token:
             return jsonify({"status": "error", "message": "摄像头接口未公开：需要 token"}), 401
         if VIEWER_TOKEN and token == VIEWER_TOKEN:
@@ -220,6 +231,56 @@ def require_viewer(fn):
         return jsonify({"status": "error", "message": "未授权：无效 token"}), 403
 
     return wrapper
+
+
+@app.post("/api/viewer/session")
+def api_viewer_session():
+    """轻量 viewer session：提交 Viewer Token（或 Admin Token），校验通过后写入 HttpOnly cookie。
+
+    供 CAMERA_PUBLIC=false 时前端相机面板授权使用。cookie SameSite=Lax；
+    Secure 仅在 HTTPS 请求下设置（HTTP 内网部署不受影响，不会因强制 Secure 导致不可用）。
+    """
+    body = request.get_json(silent=True) or {}
+    token = str(body.get("token") or "").strip()
+    if not token:
+        return jsonify({"status": "error", "message": "缺少 token"}), 400
+    if not (VIEWER_TOKEN or ADMIN_TOKEN):
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "message": "未配置 VIEWER_TOKEN / ADMIN_TOKEN（请在 backend/.env 设置后重启）",
+                }
+            ),
+            503,
+        )
+    if not ((VIEWER_TOKEN and token == VIEWER_TOKEN) or (ADMIN_TOKEN and token == ADMIN_TOKEN)):
+        return jsonify({"status": "error", "message": "未授权：无效 token"}), 403
+    resp = jsonify({"status": "ok"})
+    resp.set_cookie(
+        VIEWER_COOKIE,
+        token,
+        httponly=True,
+        samesite="Lax",
+        secure=request.is_secure,  # 仅 HTTPS 下标记 Secure，HTTP 内网部署不受影响
+        max_age=7 * 24 * 3600,
+        path="/",
+    )
+    return resp
+
+
+@app.get("/api/attendance/face-checkin")
+@require_viewer
+def api_face_checkin():
+    """今日已通过摄像头人脸识别打卡的成员名单。
+
+    含成员身份数据，与 Camera privacy 策略一致：
+    CAMERA_PUBLIC=false 时与 /api/camera/*、/api/attendance/face-latest 一样
+    需要 viewer 凭证（Bearer / session cookie / Legacy query token）。
+    """
+    from services.face_checkin import read_today_checkin
+
+    return jsonify(read_today_checkin())
 
 
 @app.post("/api/admin/checkin/sync")

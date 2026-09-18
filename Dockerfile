@@ -6,7 +6,9 @@
 # ============================================================
 
 # ---------- Stage 1: frontend build ----------
-FROM node:20-alpine AS frontend
+# Node 22 LTS：与 GitHub Actions (actions/setup-node@v4, node-version: 22) 保持一致，
+# 避免 jsdom / undici 等依赖在 Node 20 下的 EBADENGINE engine mismatch。
+FROM node:22-alpine AS frontend
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps

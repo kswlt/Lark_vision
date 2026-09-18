@@ -12,6 +12,9 @@ backend/config/team_roster.json
 backend/config/team.yaml
 backend/config/team.json
 
+# Docker 自定义覆盖（用户本地挂载 team.yaml 用；仓库只提交 compose.override.yaml.example）
+compose.override.yaml
+
 # 真实飞书文档配置与本地备份（不入库；仓库只提交 featured_docs.example.py）
 backend/config/featured_docs.py
 backend/config/all_docs_content.json

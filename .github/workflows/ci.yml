@@ -84,6 +84,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: docker compose config (YAML schema 校验)
+        run: docker compose config > /dev/null
       - name: Build image
         run: docker build -t rm-control:ci .
       - name: docker compose up

@@ -4,9 +4,14 @@ interface PromoVideoPlayerProps {
   onClose: () => void
 }
 
-// 宣传片列表（与后端public/promo_videos目录对应）
+interface PromoVideo {
+  title: string
+  src: string
+}
+
+// 宣传片列表（与后端 public/promo_videos 目录对应）
 // 只保留1080p H.264编码的视频，确保Intel HD 630核显能流畅硬件解码
-const PROMO_VIDEOS = [
+const PROMO_VIDEOS: PromoVideo[] = [
   {
     title: '灯光秀 - RMUC 2025 全国总决赛',
     src: '/promo_videos/灯光秀 - RMUC 2025 全国总决赛.mp4',
@@ -37,20 +42,52 @@ const PROMO_VIDEOS = [
   },
 ]
 
+/** 探测某个视频是否真实存在：
+ * 存在 -> 后端以 video/* 返回；不存在 -> 走 SPA fallback 返回 index.html(text/html)。 */
+async function probeVideo(v: PromoVideo): Promise<PromoVideo | null> {
+  try {
+    const res = await fetch(v.src, { method: 'HEAD' })
+    return (res.headers.get('content-type') ?? '').startsWith('video/') ? v : null
+  } catch {
+    return null
+  }
+}
+
 export default function PromoVideoPlayer({ onClose }: PromoVideoPlayerProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showControls, setShowControls] = useState(true)
   const [isPlaying, setIsPlaying] = useState(false)
   const [autoPlayFailed, setAutoPlayFailed] = useState(false)
+  // null = 探测中；[] = 已探测但没有任何可用视频（fresh clone / 未配置）
+  const [videos, setVideos] = useState<PromoVideo[] | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const controlsTimeoutRef = useRef<number | null>(null)
 
-  const currentVideo = PROMO_VIDEOS[currentIndex]
+  // 打开播放器时探测可用宣传片：仓库默认不含视频（.dockerignore 排除），
+  // 全部缺失时显示“宣传片资源未配置”，避免 fresh clone 点击后大量 404。
+  useEffect(() => {
+    let alive = true
+    const probe = async () => {
+      const results = await Promise.all(PROMO_VIDEOS.map(probeVideo))
+      if (alive) {
+        setVideos(results.filter((v): v is PromoVideo => v !== null))
+        setCurrentIndex(0)
+      }
+    }
+    void probe()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const videoCount = videos?.length ?? 0
+  const currentVideo = videos && videoCount > 0 ? videos[currentIndex % videoCount] : null
 
   // 播放下一个视频
   const playNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % PROMO_VIDEOS.length)
-  }, [])
+    if (videoCount === 0) return
+    setCurrentIndex((prev) => (prev + 1) % videoCount)
+  }, [videoCount])
 
   // 视频结束自动播放下一个
   const handleVideoEnd = useCallback(() => {
@@ -121,14 +158,14 @@ export default function PromoVideoPlayer({ onClose }: PromoVideoPlayerProps) {
 
   // 切换视频后自动播放（带声音，因为是用户点击按钮触发的）
   useEffect(() => {
-    if (videoRef.current) {
+    if (videoRef.current && currentVideo) {
       videoRef.current.load()
       // 延迟一点播放，确保视频已加载
       setTimeout(() => {
         playVideo()
       }, 100)
     }
-  }, [currentIndex, playVideo])
+  }, [currentIndex, playVideo, currentVideo])
 
   // 视频播放/暂停事件
   const handlePlay = useCallback(() => {
@@ -159,111 +196,143 @@ export default function PromoVideoPlayer({ onClose }: PromoVideoPlayerProps) {
       onDoubleClick={handleDoubleClick}
       onClick={handleClick}
     >
-      {/* 视频 - 绝对定位填满整个屏幕，object-contain保持宽高比居中 */}
-      <video
-        ref={videoRef}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          display: 'block',
-          margin: 0,
-          padding: 0,
-        }}
-        src={currentVideo.src}
-        onEnded={handleVideoEnd}
-        onPlay={handlePlay}
-        onPause={handlePause}
-        autoPlay
-        loop={false}
-        playsInline
-      />
-
-      {/* 自动播放失败时显示中央播放按钮 */}
-      {(autoPlayFailed || !isPlaying) && (
+      {videos === null ? (
+        /* 探测中 */
+        <div className="absolute inset-0 flex items-center justify-center text-white/70 text-lg">
+          正在检查宣传片资源…
+        </div>
+      ) : videoCount === 0 ? (
+        /* fresh clone / 未配置视频：不播放、不报 404，明确提示 */
         <div
-          className="absolute inset-0 flex items-center justify-center cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation()
-            playVideo()
-          }}
+          className="absolute inset-0 flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
         >
-          <div className="w-24 h-24 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border-2 border-white/40 hover:bg-white/30 transition-all">
-            <svg className="w-12 h-12 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-          <div className="absolute bottom-40 text-white/80 text-lg">
-            点击播放（带声音）
+          <div className="max-w-md mx-6 text-center">
+            <div className="text-xl font-medium text-white mb-3">宣传片资源未配置</div>
+            <div className="text-sm text-gray-300 leading-relaxed">
+              当前部署未包含宣传片视频文件。请将 <span className="text-white">.mp4</span>{' '}
+              放入 <span className="num-mono text-white">frontend/public/promo_videos/</span>{' '}
+              并重新构建，或放入仓库根目录 <span className="num-mono text-white">public/promo_videos/</span>{' '}
+              后重启服务（无需重新构建），即可在全屏循环播放。
+            </div>
+            <button
+              onClick={onClose}
+              className="mt-6 px-6 py-2.5 rounded bg-red-500/80 hover:bg-red-500 text-sm text-white transition-colors"
+            >
+              关闭
+            </button>
           </div>
         </div>
-      )}
+      ) : (
+        <>
+          {/* 视频 - 绝对定位填满整个屏幕，object-contain保持宽高比居中 */}
+          <video
+            ref={videoRef}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+              margin: 0,
+              padding: 0,
+            }}
+            src={currentVideo?.src}
+            onEnded={handleVideoEnd}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            autoPlay
+            loop={false}
+            playsInline
+          />
 
-      {/* 控制栏 */}
-      <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6 transition-opacity duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between text-white">
-          {/* 当前视频标题 */}
-          <div className="flex-1">
-            <div className="text-lg font-medium">{currentVideo.title}</div>
-            <div className="text-sm text-gray-300 mt-1">
-              {currentIndex + 1} / {PROMO_VIDEOS.length} · 循环播放中
+          {/* 自动播放失败时显示中央播放按钮 */}
+          {(autoPlayFailed || !isPlaying) && (
+            <div
+              className="absolute inset-0 flex items-center justify-center cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation()
+                playVideo()
+              }}
+            >
+              <div className="w-24 h-24 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border-2 border-white/40 hover:bg-white/30 transition-all">
+                <svg className="w-12 h-12 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+              <div className="absolute bottom-40 text-white/80 text-lg">
+                点击播放（带声音）
+              </div>
+            </div>
+          )}
+
+          {/* 控制栏 */}
+          <div
+            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6 transition-opacity duration-300 ${
+              showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between text-white">
+              {/* 当前视频标题 */}
+              <div className="flex-1">
+                <div className="text-lg font-medium">{currentVideo?.title}</div>
+                <div className="text-sm text-gray-300 mt-1">
+                  {currentIndex + 1} / {videoCount} · 循环播放中
+                </div>
+              </div>
+
+              {/* 控制按钮 */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setCurrentIndex((prev) => (prev - 1 + videoCount) % videoCount)}
+                  className="px-4 py-2 rounded bg-white/10 hover:bg-white/20 text-sm transition-colors"
+                >
+                  上一个
+                </button>
+                <button
+                  onClick={() => {
+                    if (videoRef.current) {
+                      if (videoRef.current.paused) {
+                        playVideo()
+                      } else {
+                        videoRef.current.pause()
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 rounded bg-white/10 hover:bg-white/20 text-sm transition-colors"
+                >
+                  {isPlaying ? '暂停' : '播放'}
+                </button>
+                <button
+                  onClick={playNext}
+                  className="px-4 py-2 rounded bg-white/10 hover:bg-white/20 text-sm transition-colors"
+                >
+                  下一个
+                </button>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 rounded bg-red-500/80 hover:bg-red-500 text-sm transition-colors"
+                >
+                  退出 (双击)
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* 控制按钮 */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setCurrentIndex((prev) => (prev - 1 + PROMO_VIDEOS.length) % PROMO_VIDEOS.length)}
-              className="px-4 py-2 rounded bg-white/10 hover:bg-white/20 text-sm transition-colors"
-            >
-              上一个
-            </button>
-            <button
-              onClick={() => {
-                if (videoRef.current) {
-                  if (videoRef.current.paused) {
-                    playVideo()
-                  } else {
-                    videoRef.current.pause()
-                  }
-                }
-              }}
-              className="px-4 py-2 rounded bg-white/10 hover:bg-white/20 text-sm transition-colors"
-            >
-              {isPlaying ? '暂停' : '播放'}
-            </button>
-            <button
-              onClick={playNext}
-              className="px-4 py-2 rounded bg-white/10 hover:bg-white/20 text-sm transition-colors"
-            >
-              下一个
-            </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded bg-red-500/80 hover:bg-red-500 text-sm transition-colors"
-            >
-              退出 (双击)
-            </button>
+          {/* 顶部提示 */}
+          <div
+            className={`absolute top-6 left-1/2 -translate-x-1/2 text-white/60 text-sm transition-opacity duration-300 ${
+              showControls ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            双击屏幕或按 ESC 退出全屏 · 空格键暂停/播放 · 方向键切换
           </div>
-        </div>
-      </div>
-
-      {/* 顶部提示 */}
-      <div
-        className={`absolute top-6 left-1/2 -translate-x-1/2 text-white/60 text-sm transition-opacity duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0'
-        }`}
-      >
-        双击屏幕或按 ESC 退出全屏 · 空格键暂停/播放 · 方向键切换
-      </div>
+        </>
+      )}
     </div>
   )
 }
